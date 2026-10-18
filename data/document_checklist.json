@@ -1,0 +1,24 @@
+{
+  "profile": {
+    "age": 38,
+    "occupation": "farmer",
+    "district": "East Godavari",
+    "annual_income": 125000,
+    "land_acres": 3,
+    "caste_category": "SC"
+  },
+  "language": "Telugu",
+  "schemes": [
+    {
+      "scheme": "Annadata Sukhibhava AP",
+      "documents": [],
+      "start_date": "not found in documents",
+      "deadline": "not found in documents",
+      "dates_source": "none",
+      "how_to_apply": [],
+      "other_requirements": [],
+      "where_to_apply": "not found in documents"
+    }
+  ],
+  "checklist": []
+}

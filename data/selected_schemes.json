@@ -1,0 +1,13 @@
+{
+  "profile": {
+    "age": 38,
+    "occupation": "farmer",
+    "district": "East Godavari",
+    "annual_income": 125000,
+    "land_acres": 3,
+    "caste_category": "SC"
+  },
+  "selected_schemes": [
+    "Annadata Sukhibhava AP"
+  ]
+}
