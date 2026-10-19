@@ -7,6 +7,10 @@ import requests
 import sounddevice as sd
 import soundfile as sf
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from retrieval_agent import get_llm, vector_store, DATA_DIR
 
 

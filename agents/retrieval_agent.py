@@ -1,6 +1,7 @@
 import os
 import uuid
 
+from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA, NVIDIAEmbeddings
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -9,6 +10,8 @@ from langchain.agents import create_agent
 from langchain_chroma import Chroma
 from langgraph.checkpoint.memory import InMemorySaver
 
+
+load_dotenv()
 
 # All paths start from the project folder (the parent of agents/), so the
 # result is the same no matter which folder you run the script from.

@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from typing import Optional
 
@@ -7,21 +8,27 @@ import requests
 import sounddevice as sd
 import soundfile as sf
 
+from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
 
-# 1. API keys (set these as environment variables, never hardcode them)
-GNANI_API_KEY = os.getenv("GNANI_API_KEY")
+load_dotenv()
 
-if not GNANI_API_KEY:
-    raise ValueError("Please set the GNANI_API_KEY environment variable.")
+# 1. API keys (set these as environment variables, never hardcode them)
+#    The check now runs inside get_profile(), so importing this file
+#    never fails or asks questions.
+GNANI_API_KEY = os.getenv("GNANI_API_KEY")
 
 STT_URL = "https://api.vachana.ai/stt/v3"
 TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
 SAMPLE_RATE = 16000
+
+# the profile is saved here so other agents can read it later
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+PROFILE_FILE = os.path.join(DATA_DIR, "profile.json")
 
 
 # 2. Initialize the LLM
@@ -112,10 +119,11 @@ def speak(text: str, locale: str):
 
 
 # 6. The user profile we want to fill (stored in English)
-REQUIRED_FIELDS = ["age", "occupation", "district", "annual_income"]
+REQUIRED_FIELDS = ["age","gender", "occupation", "district", "annual_income"]
 
 profile = {
     "age": None,
+    "gender": None,
     "occupation": None,
     "district": None,
     "annual_income": None,
@@ -130,6 +138,7 @@ confirmed = {"done": False}
 @tool
 def update_profile(
     age: Optional[int] = None,
+    gender: Optional[str] = None,
     occupation: Optional[str] = None,
     district: Optional[str] = None,
     annual_income: Optional[int] = None,
@@ -142,6 +151,7 @@ def update_profile(
 
     updates = {
         "age": age,
+        "gender": gender,
         "occupation": occupation,
         "district": district,
         "annual_income": annual_income,
@@ -188,6 +198,7 @@ def build_agent(language: str):
 
         Your job is to collect these details:
         - age
+        - gender (for example male, female)
         - occupation (for example farmer, student, laborer)
         - district
         - annual income in rupees
@@ -219,52 +230,102 @@ languages = {
     "3": ("Hindi", "hi-IN"),
 }
 
-choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
-language, locale = languages.get(choice, languages["1"])
 
-agent = build_agent(language)
-config = {"configurable": {"thread_id": "1"}}
+# 11. The function other files import: run the voice intake, return the profile
+def get_profile(
+    language: Optional[str] = None,
+    locale: Optional[str] = None,
+) -> Optional[dict]:
+    """Ask the user their details by voice and return the confirmed profile
+    as a dict, for example {"age": 18, "gender": "female", ...}.
 
+    Pass language and locale (for example "Telugu", "te-IN") to skip the
+    language question. Returns None if the user quits before confirming.
+    The profile is also saved to data/profile.json (see load_profile).
+    """
 
-def ask_agent(text: str) -> str:
-    response = agent.invoke(
-        {"messages": [{"role": "user", "content": text}]},
-        config,
-    )
-    return response["messages"][-1].content
+    if not GNANI_API_KEY:
+        raise ValueError("Please set the GNANI_API_KEY environment variable.")
 
+    # start fresh, in case this function is called more than once
+    for key in profile:
+        profile[key] = None
+    confirmed["done"] = False
 
-# 11. Voice chat loop
-reply = ask_agent("Hello")
-print("ai:", reply)
-speak(reply, locale)
+    if not (language and locale):
+        choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
+        language, locale = languages.get(choice, languages["1"])
 
-while not confirmed["done"]:
-    typed = input("\nPress Enter to speak (or type your answer): ").strip()
+    agent = build_agent(language)
+    config = {"configurable": {"thread_id": "1"}}
 
-    if typed.lower() in ["exit", "bye"]:
-        break
+    def ask_agent(text: str) -> str:
+        response = agent.invoke(
+            {"messages": [{"role": "user", "content": text}]},
+            config,
+        )
+        return response["messages"][-1].content
 
-    if typed:
-        query = typed
-    else:
-        wav_path = record_audio()
-
-        if not wav_path:
-            print("No audio recorded, try again.")
-            continue
-
-        query = speech_to_text(wav_path, locale)
-
-        if not query:
-            print("Could not understand the audio, try again.")
-            continue
-
-    print("user:", query)
-
-    reply = ask_agent(query)
+    # 12. Voice chat loop
+    reply = ask_agent("Hello")
     print("ai:", reply)
     speak(reply, locale)
 
-if confirmed["done"]:
-    print("\nFinal profile:", profile)
+    while not confirmed["done"]:
+        typed = input("\nPress Enter to speak (or type your answer): ").strip()
+
+        if typed.lower() in ["exit", "bye"]:
+            break
+
+        if typed:
+            query = typed
+        else:
+            wav_path = record_audio()
+
+            if not wav_path:
+                print("No audio recorded, try again.")
+                continue
+
+            query = speech_to_text(wav_path, locale)
+
+            if not query:
+                print("Could not understand the audio, try again.")
+                continue
+
+        print("user:", query)
+
+        reply = ask_agent(query)
+        print("ai:", reply)
+        speak(reply, locale)
+
+    if not confirmed["done"]:
+        return None
+
+    result = dict(profile)
+    print("\nFinal profile:", result)
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {"language": language, "locale": locale, "profile": result},
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    return result
+
+
+def load_profile() -> dict:
+    """Return the profile saved by get_profile(), without asking any questions."""
+
+    if not os.path.exists(PROFILE_FILE):
+        raise FileNotFoundError(f"{PROFILE_FILE} not found. Run get_profile() first.")
+
+    with open(PROFILE_FILE, encoding="utf-8") as f:
+        return json.load(f)["profile"]
+
+
+if __name__ == "__main__":
+    get_profile()

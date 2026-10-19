@@ -10,12 +10,14 @@ import requests
 import sounddevice as sd
 import soundfile as sf
 
+from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
 
+load_dotenv()
 
 profile = {
     "age": 38,

@@ -1,4 +1,4 @@
-dotenv
+python-dotenv
 langchain-nvidia-ai-endpoints
 langchain
 langchain_core
