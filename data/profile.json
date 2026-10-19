@@ -1,0 +1,13 @@
+{
+  "language": "English",
+  "locale": "en-IN",
+  "profile": {
+    "age": 18,
+    "gender": "male",
+    "occupation": "student",
+    "district": "vijayawada",
+    "annual_income": 100000,
+    "land_acres": null,
+    "caste_category": null
+  }
+}

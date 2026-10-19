@@ -327,5 +327,18 @@ def load_profile() -> dict:
         return json.load(f)["profile"]
 
 
+def load_language() -> tuple:
+    """Return (language, locale) saved by get_profile(), for example
+    ("Telugu", "te-IN"), so other agents speak the same language."""
+
+    if not os.path.exists(PROFILE_FILE):
+        raise FileNotFoundError(f"{PROFILE_FILE} not found. Run get_profile() first.")
+
+    with open(PROFILE_FILE, encoding="utf-8") as f:
+        saved = json.load(f)
+
+    return saved["language"], saved["locale"]
+
+
 if __name__ == "__main__":
     get_profile()

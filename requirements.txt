@@ -13,3 +13,4 @@ requests
 sounddevice
 soundfile
 numpy
+tavily

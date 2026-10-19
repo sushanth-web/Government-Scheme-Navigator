@@ -2,7 +2,8 @@ import json
 import io
 import os
 
-from retrieval_agent import retrieval_agent, DATA_DIR
+from agents.retrieval_agent import retrieval_agent, DATA_DIR
+from agents.intake_agent import load_profile, load_language
 from typing import Optional
 
 import numpy as np
@@ -19,18 +20,21 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv()
 
-profile = {
-    "age": 38,
-    "occupation": "farmer",
-    "district": "East Godavari",
-    "annual_income": 125000,
-    "land_acres": 3,
-    "caste_category": "SC",
-}
+# 1. API key (checked inside select_schemes(), so importing this file never fails)
+GNANI_API_KEY = os.getenv("GNANI_API_KEY")
 
-profile_text = json.dumps(profile, indent=2)
+STT_URL = "https://api.vachana.ai/stt/v3"
+TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
+SAMPLE_RATE = 16000
 
-query = f"""
+SELECTED_FILE = os.path.join(DATA_DIR, "selected_schemes.json")
+
+
+# 2. The ranking prompt (it was a global before, now it is built from any profile)
+def build_query(profile: dict) -> str:
+    profile_text = json.dumps(profile, indent=2)
+
+    return f"""
 Here is my profile:
 {profile_text}
 
@@ -58,20 +62,8 @@ Use only what the documents say. If a detail is missing, write
 "not found in documents".
 """
 
-# check the key BEFORE the slow ranking step
-GNANI_API_KEY = os.getenv("GNANI_API_KEY")
 
-if not GNANI_API_KEY:
-    raise ValueError("Please set the GNANI_API_KEY environment variable.")
-
-STT_URL = "https://api.vachana.ai/stt/v3"
-TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
-SAMPLE_RATE = 16000
-
-# the ranked list (text) is now kept and given to the voice agent
-print("Comparing your profile with all the schemes, please wait...")
-ranked_schemes = retrieval_agent(query)
-
+# 3. LLM
 def get_llm(
     model_name: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
     temperature: float = 0.3,
@@ -89,6 +81,8 @@ def get_llm(
         max_completion_tokens=1024,
     )
 
+
+# 4. Voice
 def record_audio(path: str = "input.wav") -> Optional[str]:
     chunks = []
 
@@ -108,6 +102,7 @@ def record_audio(path: str = "input.wav") -> Optional[str]:
     sf.write(path, np.concatenate(chunks), SAMPLE_RATE)
     return path
 
+
 def speech_to_text(wav_path: str, locale: str) -> str:
     with open(wav_path, "rb") as f:
         response = requests.post(
@@ -120,6 +115,7 @@ def speech_to_text(wav_path: str, locale: str) -> str:
 
     response.raise_for_status()
     return response.json().get("transcript", "").strip()
+
 
 def speak(text: str, locale: str):
     response = requests.post(
@@ -151,10 +147,12 @@ def speak(text: str, locale: str):
     sd.play(data, rate)
     sd.wait()
 
-# the schemes the user chose (a list, so several schemes can be saved)
-selected_schemes = []
 
+# 5. Shared data used by the tools
+ranked = {"text": ""}          # the ranked list, filled by select_schemes()
+selected_schemes = []          # the schemes the user chose
 confirmed = {"done": False}
+
 
 @tool
 def update_scheme(schemes: list[str]) -> str:
@@ -165,7 +163,7 @@ def update_scheme(schemes: list[str]) -> str:
     not_found = []
 
     for name in schemes:
-        if name.lower() not in ranked_schemes.lower():
+        if name.lower() not in ranked["text"].lower():
             not_found.append(name)
         elif name not in selected_schemes:
             selected_schemes.append(name)
@@ -201,7 +199,9 @@ def confirm_scheme() -> str:
     confirmed["done"] = True
     return "Schemes confirmed."
 
-def build_agent(language: str):
+
+# 6. The voice agent
+def build_agent(language: str, ranked_schemes: str):
     return create_agent(
         model=get_llm(),
         tools=[update_scheme, remove_scheme, confirm_scheme],
@@ -249,72 +249,135 @@ def build_agent(language: str):
         checkpointer=InMemorySaver(),
     )
 
+
 languages = {
     "1": ("English", "en-IN"),
     "2": ("Telugu", "te-IN"),
     "3": ("Hindi", "hi-IN"),
 }
 
-choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
-language, locale = languages.get(choice, languages["1"])
 
-agent = build_agent(language)
-config = {"configurable": {"thread_id": "1"}}
+# 7. The function other files import: rank the schemes, let the user choose
+def select_schemes(
+    profile: Optional[dict] = None,
+    language: Optional[str] = None,
+    locale: Optional[str] = None,
+) -> Optional[dict]:
+    """Compare the profile with all the schemes in the documents, tell the
+    user the best ones by voice and let them choose. Returns a dict:
 
+        {"ranked_schemes": "<ranked text>",
+         "selected_schemes": ["Scheme A", "Scheme B"],
+         "language": "Telugu", "locale": "te-IN"}
 
-def ask_agent(text: str) -> str:
-    response = agent.invoke(
-        {"messages": [{"role": "user", "content": text}]},
-        config,
-    )
-    return response["messages"][-1].content
+    profile: the dict from the intake agent (get_profile). If you do not
+        pass it, the profile saved by the intake agent is loaded.
+    language, locale: for example "Telugu", "te-IN". If you do not pass
+        them, the language the user chose in the intake agent is used
+        (and only if there is none, the user is asked).
 
+    Returns None if the user quits before confirming.
+    The result is also saved to data/selected_schemes.json.
+    """
 
-# the agent speaks first and presents the top schemes
-reply = ask_agent("Hello")
-print("ai:", reply)
-speak(reply, locale)
+    # check the key BEFORE the slow ranking step
+    if not GNANI_API_KEY:
+        raise ValueError("Please set the GNANI_API_KEY environment variable.")
 
-while not confirmed["done"]:
-    typed = input("\nPress Enter to speak (or type your answer): ").strip()
+    # take the details from the intake agent
+    if profile is None:
+        profile = load_profile()
 
-    if typed.lower() in ["exit", "bye"]:
-        break
+    if not (language and locale):
+        try:
+            language, locale = load_language()
+        except FileNotFoundError:
+            pass
 
-    if typed:
-        query = typed
-    else:
-        wav_path = record_audio()
+    # start fresh, in case this function is called more than once
+    selected_schemes.clear()
+    confirmed["done"] = False
 
-        if not wav_path:
-            print("No audio recorded, try again.")
-            continue
+    if not (language and locale):
+        choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
+        language, locale = languages.get(choice, languages["1"])
 
-        query = speech_to_text(wav_path, locale)
+    print("Comparing your profile with all the schemes, please wait...")
+    ranked["text"] = retrieval_agent(build_query(profile))
 
-        if not query:
-            print("Could not understand the audio, try again.")
-            continue
+    agent = build_agent(language, ranked["text"])
+    config = {"configurable": {"thread_id": "1"}}
 
-    print("user:", query)
+    def ask_agent(text: str) -> str:
+        response = agent.invoke(
+            {"messages": [{"role": "user", "content": text}]},
+            config,
+        )
+        return response["messages"][-1].content
 
-    reply = ask_agent(query)
+    # the agent speaks first and presents the top schemes
+    reply = ask_agent("Hello")
     print("ai:", reply)
     speak(reply, locale)
 
-if confirmed["done"]:
+    while not confirmed["done"]:
+        typed = input("\nPress Enter to speak (or type your answer): ").strip()
+
+        if typed.lower() in ["exit", "bye"]:
+            break
+
+        if typed:
+            query = typed
+        else:
+            wav_path = record_audio()
+
+            if not wav_path:
+                print("No audio recorded, try again.")
+                continue
+
+            query = speech_to_text(wav_path, locale)
+
+            if not query:
+                print("Could not understand the audio, try again.")
+                continue
+
+        print("user:", query)
+
+        reply = ask_agent(query)
+        print("ai:", reply)
+        speak(reply, locale)
+
+    if not confirmed["done"]:
+        return None
+
     print("\nSelected schemes:", selected_schemes)
 
     # saved so the next agent can read it
     os.makedirs(DATA_DIR, exist_ok=True)
-    save_path = os.path.join(DATA_DIR, "selected_schemes.json")
 
-    with open(save_path, "w", encoding="utf-8") as f:
+    with open(SELECTED_FILE, "w", encoding="utf-8") as f:
         json.dump(
-            {"profile": profile, "selected_schemes": selected_schemes},
+            {
+                "profile": profile,
+                "language": language,
+                "locale": locale,
+                "selected_schemes": selected_schemes,
+            },
             f,
             indent=2,
             ensure_ascii=False,
         )
 
-    print("Saved to:", save_path)
+    print("Saved to:", SELECTED_FILE)
+
+    return {
+        "ranked_schemes": ranked["text"],
+        "selected_schemes": list(selected_schemes),
+        "language": language,
+        "locale": locale,
+    }
+
+
+if __name__ == "__main__":
+    # run get_profile() (intake agent) first, this reads what it saved
+    select_schemes()

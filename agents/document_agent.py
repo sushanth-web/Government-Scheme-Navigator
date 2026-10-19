@@ -7,18 +7,19 @@ import requests
 import sounddevice as sd
 import soundfile as sf
 
+from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from retrieval_agent import get_llm, vector_store, DATA_DIR
+from agents.retrieval_agent import get_llm, vector_store, DATA_DIR
+from agents.intake_agent import load_language
 
 
-# 1. Keys and settings (checked first, before the slow steps)
+# 1. Keys and settings (the Gnani key is checked inside the function,
+#    so importing this file never fails)
 GNANI_API_KEY = os.getenv("GNANI_API_KEY")
-
-if not GNANI_API_KEY:
-    raise ValueError("Please set the GNANI_API_KEY environment variable.")
 
 TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
 NOT_FOUND = "not found in documents"
@@ -29,31 +30,20 @@ languages = {
     "3": ("Hindi", "hi-IN"),
 }
 
-
-# 2. Load what the scheme selection agent saved
 SELECTED_FILE = os.path.join(DATA_DIR, "selected_schemes.json")
+CHECKLIST_FILE = os.path.join(DATA_DIR, "document_checklist.json")
 
-if not os.path.exists(SELECTED_FILE):
-    raise FileNotFoundError(
-        f"{SELECTED_FILE} not found. Run the scheme selection agent first."
-    )
 
-with open(SELECTED_FILE, encoding="utf-8") as f:
-    saved = json.load(f)
+# 2. Load what the scheme selection agent saved (only used when you call the
+#    function without passing the profile and schemes)
+def load_selected() -> dict:
+    if not os.path.exists(SELECTED_FILE):
+        raise FileNotFoundError(
+            f"{SELECTED_FILE} not found. Run select_schemes() first."
+        )
 
-profile = saved["profile"]
-selected_schemes = saved["selected_schemes"]
-
-if not selected_schemes:
-    raise ValueError("No schemes were selected.")
-
-if saved.get("language") and saved.get("locale"):
-    language, locale = saved["language"], saved["locale"]
-else:
-    choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
-    language, locale = languages.get(choice, languages["1"])
-
-llm = get_llm(temperature=0.1)
+    with open(SELECTED_FILE, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # 3. Voice: Gnani text-to-speech, then play the audio
@@ -92,7 +82,7 @@ def speak(text: str, locale: str):
         print(f"(Could not play the voice: {error})")
 
 
-def tell(text: str):
+def tell(text: str, locale: str):
     print("ai:", text)
     speak(text, locale)
 
@@ -108,7 +98,7 @@ def extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
-def ask_json(prompt: str) -> dict:
+def ask_json(llm, prompt: str) -> dict:
     last_error = None
 
     for _ in range(2):  # one retry if the reply is not valid JSON
@@ -198,7 +188,7 @@ Reply with ONLY valid JSON in exactly this shape and nothing else:
 """
 
 
-def find_requirements(scheme: str) -> dict:
+def find_requirements(scheme: str, profile: dict, llm) -> dict:
     prompt = EXTRACT_PROMPT.format(
         scheme=scheme,
         profile=json.dumps(profile, indent=2, ensure_ascii=False),
@@ -207,7 +197,7 @@ def find_requirements(scheme: str) -> dict:
     )
 
     try:
-        details = ask_json(prompt)
+        details = ask_json(llm, prompt)
     except ValueError as error:
         print(f"Warning: could not read the details of {scheme} ({error})")
         details = {}
@@ -309,21 +299,21 @@ def english_script(details: dict) -> dict:
     }
 
 
-def write_script(details: dict) -> dict:
+def write_script(details: dict, language: str, llm) -> dict:
     prompt = SCRIPT_PROMPT.format(
         language=language,
         details=json.dumps(details, indent=2, ensure_ascii=False),
     )
 
     try:
-        parts = ask_json(prompt)
+        parts = ask_json(llm, prompt)
         return {key: str(parts[key]) for key in ("documents", "dates", "steps")}
     except (ValueError, KeyError) as error:
         print(f"Warning: could not write the {language} script for {details['scheme']} ({error})")
         return english_script(details)
 
 
-def write_intro(results: list, master: list) -> dict:
+def write_intro(results: list, master: list, language: str, llm) -> dict:
     prompt = INTRO_PROMPT.format(
         language=language,
         schemes=", ".join(r["scheme"] for r in results),
@@ -331,7 +321,7 @@ def write_intro(results: list, master: list) -> dict:
     )
 
     try:
-        parts = ask_json(prompt)
+        parts = ask_json(llm, prompt)
         return {key: str(parts[key]) for key in ("intro", "closing")}
     except (ValueError, KeyError):
         names = ", ".join(item["document"] for item in master)
@@ -341,50 +331,112 @@ def write_intro(results: list, master: list) -> dict:
         }
 
 
-# 8. Run
-print("Reading the application details of your schemes, please wait...")
+# 8. The function other files import: build the checklist and tell the user
+def build_document_checklist(
+    profile: Optional[dict] = None,
+    selected_schemes: Optional[list] = None,
+    language: Optional[str] = None,
+    locale: Optional[str] = None,
+) -> dict:
+    """Find the documents, dates and steps for each selected scheme, make one
+    combined checklist and tell it to the user by voice. Returns a dict:
 
-results = [find_requirements(scheme) for scheme in selected_schemes]
-master = build_master_checklist(results)
+        {"schemes": [ {scheme, documents, start_date, deadline, ...}, ... ],
+         "checklist": [ {"document": "Aadhaar card", "needed_for": [...]}, ... ],
+         "language": "Telugu", "locale": "te-IN"}
 
-# saved so the next agent can use it
-os.makedirs(DATA_DIR, exist_ok=True)
-checklist_path = os.path.join(DATA_DIR, "document_checklist.json")
+    profile, selected_schemes: from the previous agents. If you do not pass
+        them, data/selected_schemes.json (saved by select_schemes) is used.
+    language, locale: for example "Telugu", "te-IN". If you do not pass them,
+        the saved language is used (and only if there is none, the user is asked).
 
-with open(checklist_path, "w", encoding="utf-8") as f:
-    json.dump(
-        {
-            "profile": profile,
-            "language": language,
-            "schemes": results,
-            "checklist": master,
-        },
-        f,
-        indent=2,
-        ensure_ascii=False,
-    )
+    The result is also saved to data/document_checklist.json.
+    """
 
-print("\nDocument checklist:")
-for item in master:
-    print(f"- {item['document']}  (for: {', '.join(item['needed_for'])})")
+    # check the key BEFORE the slow steps
+    if not GNANI_API_KEY:
+        raise ValueError("Please set the GNANI_API_KEY environment variable.")
 
-for result in results:
-    print(
-        f"\n{result['scheme']}: starts {result['start_date']}, "
-        f"last date {result['deadline']} (source: {result['dates_source']})"
-    )
+    # take the details from the previous agents
+    if profile is None or selected_schemes is None:
+        saved = load_selected()
 
-print(f"\nSaved to: {checklist_path}\n")
+        if profile is None:
+            profile = saved["profile"]
 
-# tell the user by voice, in the selected language
-intro = write_intro(results, master)
-tell(intro["intro"])
+        if selected_schemes is None:
+            selected_schemes = saved["selected_schemes"]
 
-for result in results:
-    script = write_script(result)
+        if not (language and locale):
+            language, locale = saved.get("language"), saved.get("locale")
 
-    tell(script["documents"])
-    tell(script["dates"])
-    tell(script["steps"])
+    if not selected_schemes:
+        raise ValueError("No schemes were selected.")
 
-tell(intro["closing"])
+    if not (language and locale):
+        try:
+            language, locale = load_language()
+        except FileNotFoundError:
+            choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
+            language, locale = languages.get(choice, languages["1"])
+
+    llm = get_llm(temperature=0.1)
+
+    print("Reading the application details of your schemes, please wait...")
+
+    results = [find_requirements(scheme, profile, llm) for scheme in selected_schemes]
+    master = build_master_checklist(results)
+
+    # saved so the next agent can use it
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    with open(CHECKLIST_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "profile": profile,
+                "language": language,
+                "locale": locale,
+                "schemes": results,
+                "checklist": master,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    print("\nDocument checklist:")
+    for item in master:
+        print(f"- {item['document']}  (for: {', '.join(item['needed_for'])})")
+
+    for result in results:
+        print(
+            f"\n{result['scheme']}: starts {result['start_date']}, "
+            f"last date {result['deadline']} (source: {result['dates_source']})"
+        )
+
+    print(f"\nSaved to: {CHECKLIST_FILE}\n")
+
+    # tell the user by voice, in the selected language
+    intro = write_intro(results, master, language, llm)
+    tell(intro["intro"], locale)
+
+    for result in results:
+        script = write_script(result, language, llm)
+
+        tell(script["documents"], locale)
+        tell(script["dates"], locale)
+        tell(script["steps"], locale)
+
+    tell(intro["closing"], locale)
+
+    return {
+        "schemes": results,
+        "checklist": master,
+        "language": language,
+        "locale": locale,
+    }
+
+
+if __name__ == "__main__":
+    # run select_schemes() first, this reads what it saved
+    build_document_checklist()

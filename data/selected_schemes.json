@@ -1,12 +1,14 @@
 {
   "profile": {
-    "age": 38,
-    "occupation": "farmer",
-    "district": "East Godavari",
-    "annual_income": 125000,
-    "land_acres": 3,
-    "caste_category": "SC"
+    "age": 18,
+    "gender": "male",
+    "state": "Andhra Pradesh",
+    "district": "vijayawada",
+    "occupation": "student",
+    "annual_income": 100000
   },
+  "language": "English",
+  "locale": "en-IN",
   "selected_schemes": [
     "Annadata Sukhibhava AP"
   ]
