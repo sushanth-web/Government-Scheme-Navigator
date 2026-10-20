@@ -1,27 +1,19 @@
 import json
-import io
 import os
 import re
-
-import requests
-import sounddevice as sd
-import soundfile as sf
 
 from typing import Optional
 
 from dotenv import load_dotenv
+from tavily import TavilyClient
 
 load_dotenv()
 
 from agents.retrieval_agent import get_llm, vector_store, DATA_DIR
 from agents.intake_agent import load_language
+from agents.audio_utils import require_api_key, tell
 
 
-# 1. Keys and settings (the Gnani key is checked inside the function,
-#    so importing this file never fails)
-GNANI_API_KEY = os.getenv("GNANI_API_KEY")
-
-TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
 NOT_FOUND = "not found in documents"
 
 languages = {
@@ -46,45 +38,29 @@ def load_selected() -> dict:
         return json.load(f)
 
 
-# 3. Voice: Gnani text-to-speech, then play the audio
-def speak(text: str, locale: str):
-    try:
-        response = requests.post(
-            TTS_URL,
-            headers={
-                "Content-Type": "application/json",
-                "X-API-Key-ID": GNANI_API_KEY,
-            },
-            json={
-                "text": text,
-                "voice": "Shivani",
-                "model": "timbre-v3.0",
-                "language": locale,
-                "speed": 1.0,
-                "audio_config": {
-                    "sample_rate": 24000,
-                    "num_channels": 1,
-                    "sample_width": 2,
-                    "encoding": "linear_pcm",
-                    "container": "wav",
-                },
-            },
-            timeout=60,
-        )
+def get_web_text(scheme: str) -> str:
+    """Find current application dates for a scheme, if web search is configured."""
+    api_key = os.getenv("TAVILY_API_KEY")
 
-        response.raise_for_status()
+    if not api_key:
+        return ""
 
-        data, rate = sf.read(io.BytesIO(response.content))
-        sd.play(data, rate)
-        sd.wait()
-    except Exception as error:
-        # the text is already printed, so do not stop the whole run
-        print(f"(Could not play the voice: {error})")
+    response = TavilyClient(api_key=api_key).search(
+        query=(
+            f"{scheme} application start date last date deadline "
+            "official Andhra Pradesh government scheme"
+        ),
+        search_depth="basic",
+        max_results=5,
+    )
+    results = response.get("results", [])
 
-
-def tell(text: str, locale: str):
-    print("ai:", text)
-    speak(text, locale)
+    return "\n\n".join(
+        f"{result.get('title', 'Untitled')}\n"
+        f"URL: {result.get('url', '')}\n"
+        f"{result.get('content', '')[:1200]}"
+        for result in results
+    )
 
 
 # 4. Ask the LLM for JSON and parse it
@@ -135,28 +111,6 @@ def get_scheme_text(scheme: str) -> str:
     return "\n\n".join(chunks)
 
 
-def get_web_text(scheme: str) -> str:
-    """Optional: latest dates from the web. Only runs if TAVILY_API_KEY is set."""
-
-    api_key = os.getenv("TAVILY_API_KEY")
-
-    if not api_key:
-        return ""
-
-    try:
-        from tavily import TavilyClient
-
-        results = TavilyClient(api_key=api_key).search(
-            query=f"{scheme} Andhra Pradesh application start date last date documents required",
-            max_results=3,
-        )["results"]
-
-        return "\n\n".join(f"[{r['url']}]\n{r['content']}" for r in results)
-    except Exception as error:
-        print(f"(Web search skipped: {error})")
-        return ""
-
-
 EXTRACT_PROMPT = """You are helping a person apply for a government scheme in Andhra Pradesh.
 
 SCHEME: {scheme}
@@ -164,36 +118,71 @@ SCHEME: {scheme}
 USER PROFILE (JSON):
 {profile}
 
-TEXT FROM THE OFFICIAL SCHEME DOCUMENTS:
+TEXT FROM THE OFFICIAL SCHEME DOCUMENTS (the only source for this extraction):
 {doc_text}
-
-WEB SEARCH RESULTS (may be newer, but less reliable than the documents):
-{web_text}
 
 Find what this person needs in order to apply for THIS scheme only.
 
 Rules:
-- Use only the text above. Never invent documents, dates, fees or offices.
+- Use only the official document text above. Never invent documents, dates, fees or offices.
 - If something is not in the text, write "not found in documents".
 - List only the documents this person needs. For example, a caste certificate
   only if the scheme asks for it for this person's category.
 - Use common names for documents, for example "Aadhaar card",
   "Income certificate", "Caste certificate", "Bank passbook".
-- Use the official documents first. Use the web results only for dates, and
-  then set dates_source to "web". If dates come from the documents, set it to
-  "documents". If there are no dates, set it to "none".
+- Set dates_source to "documents" only when the dates are stated in the
+  official document text. Otherwise set it to "none".
 
 Reply with ONLY valid JSON in exactly this shape and nothing else:
 {{"documents": [{{"name": "Aadhaar card", "note": "short detail or empty"}}], "start_date": "...", "deadline": "...", "dates_source": "documents", "how_to_apply": ["step 1", "step 2"], "other_requirements": ["fee, photo, bank account linking, ..."], "where_to_apply": "portal or office"}}
 """
 
 
+WEB_DATE_PROMPT = """Find application dates for this Andhra Pradesh government scheme.
+
+SCHEME: {scheme}
+
+Dates already found in official scheme documents:
+Start date: {start_date}
+Deadline: {deadline}
+
+Search results:
+{web_text}
+
+Use only explicit application start dates or deadlines stated in these search
+results. Prefer official government sources. Do not infer a date from a
+publication date, announcement date, or unrelated scheme cycle. Preserve any
+date already found in the official documents. If a date is not explicitly
+available, return "not found in documents".
+
+Reply with ONLY valid JSON in exactly this shape:
+{{"start_date": "...", "deadline": "..."}}
+"""
+
+
+def _is_missing_date(value: object) -> bool:
+    if value is None:
+        return True
+
+    normalized = str(value).strip().lower()
+
+    return not normalized or normalized in {
+        "none",
+        "n/a",
+        "na",
+        "unknown",
+        "not available",
+        "not found",
+        NOT_FOUND,
+    } or "not found in" in normalized or "not mentioned" in normalized
+
+
 def find_requirements(scheme: str, profile: dict, llm) -> dict:
+    document_text = get_scheme_text(scheme) or "(nothing found)"
     prompt = EXTRACT_PROMPT.format(
         scheme=scheme,
         profile=json.dumps(profile, indent=2, ensure_ascii=False),
-        doc_text=get_scheme_text(scheme) or "(nothing found)",
-        web_text=get_web_text(scheme) or "(not used)",
+        doc_text=document_text,
     )
 
     try:
@@ -201,6 +190,42 @@ def find_requirements(scheme: str, profile: dict, llm) -> dict:
     except ValueError as error:
         print(f"Warning: could not read the details of {scheme} ({error})")
         details = {}
+
+    start_date = details.get("start_date") or NOT_FOUND
+    deadline = details.get("deadline") or NOT_FOUND
+    dates_source = details.get("dates_source") or "none"
+
+    if _is_missing_date(start_date) or _is_missing_date(deadline):
+        web_text = get_web_text(scheme)
+
+        if web_text:
+            date_prompt = WEB_DATE_PROMPT.format(
+                scheme=scheme,
+                start_date=start_date,
+                deadline=deadline,
+                web_text=web_text,
+            )
+
+            try:
+                web_dates = ask_json(llm, date_prompt)
+            except ValueError as error:
+                print(f"Warning: could not extract web dates for {scheme} ({error})")
+                web_dates = {}
+
+            web_start_date = web_dates.get("start_date")
+            web_deadline = web_dates.get("deadline")
+            used_web_dates = False
+
+            if _is_missing_date(start_date) and not _is_missing_date(web_start_date):
+                start_date = str(web_start_date).strip()
+                used_web_dates = True
+
+            if _is_missing_date(deadline) and not _is_missing_date(web_deadline):
+                deadline = str(web_deadline).strip()
+                used_web_dates = True
+
+            if used_web_dates:
+                dates_source = "web"
 
     documents = []
 
@@ -213,9 +238,9 @@ def find_requirements(scheme: str, profile: dict, llm) -> dict:
     return {
         "scheme": scheme,
         "documents": documents,
-        "start_date": details.get("start_date") or NOT_FOUND,
-        "deadline": details.get("deadline") or NOT_FOUND,
-        "dates_source": details.get("dates_source") or "none",
+        "start_date": start_date,
+        "deadline": deadline,
+        "dates_source": dates_source,
         "how_to_apply": details.get("how_to_apply") or [],
         "other_requirements": details.get("other_requirements") or [],
         "where_to_apply": details.get("where_to_apply") or NOT_FOUND,
@@ -354,8 +379,7 @@ def build_document_checklist(
     """
 
     # check the key BEFORE the slow steps
-    if not GNANI_API_KEY:
-        raise ValueError("Please set the GNANI_API_KEY environment variable.")
+    require_api_key()
 
     # take the details from the previous agents
     if profile is None or selected_schemes is None:
@@ -418,16 +442,16 @@ def build_document_checklist(
 
     # tell the user by voice, in the selected language
     intro = write_intro(results, master, language, llm)
-    tell(intro["intro"], locale)
+    tell(intro["intro"], locale, continue_on_error=True)
 
     for result in results:
         script = write_script(result, language, llm)
 
-        tell(script["documents"], locale)
-        tell(script["dates"], locale)
-        tell(script["steps"], locale)
+        tell(script["documents"], locale, continue_on_error=True)
+        tell(script["dates"], locale, continue_on_error=True)
+        tell(script["steps"], locale, continue_on_error=True)
 
-    tell(intro["closing"], locale)
+    tell(intro["closing"], locale, continue_on_error=True)
 
     return {
         "schemes": results,

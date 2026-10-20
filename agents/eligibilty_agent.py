@@ -1,15 +1,9 @@
 import json
-import io
 import os
 
 from agents.retrieval_agent import retrieval_agent, DATA_DIR
 from agents.intake_agent import load_profile, load_language
 from typing import Optional
-
-import numpy as np
-import requests
-import sounddevice as sd
-import soundfile as sf
 
 from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
@@ -17,15 +11,10 @@ from langchain.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agents.audio_utils import get_user_query, require_api_key, tell
+
 
 load_dotenv()
-
-# 1. API key (checked inside select_schemes(), so importing this file never fails)
-GNANI_API_KEY = os.getenv("GNANI_API_KEY")
-
-STT_URL = "https://api.vachana.ai/stt/v3"
-TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
-SAMPLE_RATE = 16000
 
 SELECTED_FILE = os.path.join(DATA_DIR, "selected_schemes.json")
 
@@ -80,72 +69,6 @@ def get_llm(
         timeout=180,
         max_completion_tokens=1024,
     )
-
-
-# 4. Voice
-def record_audio(path: str = "input.wav") -> Optional[str]:
-    chunks = []
-
-    def callback(indata, frames, time, status):
-        chunks.append(indata.copy())
-
-    print("Listening... speak now, press Enter when you are done.")
-
-    with sd.InputStream(
-        samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=callback
-    ):
-        input()
-
-    if not chunks:
-        return None
-
-    sf.write(path, np.concatenate(chunks), SAMPLE_RATE)
-    return path
-
-
-def speech_to_text(wav_path: str, locale: str) -> str:
-    with open(wav_path, "rb") as f:
-        response = requests.post(
-            STT_URL,
-            headers={"X-API-Key-ID": GNANI_API_KEY},
-            files={"audio_file": f},
-            data={"language_code": locale, "format": "transcribe"},
-            timeout=60,
-        )
-
-    response.raise_for_status()
-    return response.json().get("transcript", "").strip()
-
-
-def speak(text: str, locale: str):
-    response = requests.post(
-        TTS_URL,
-        headers={
-            "Content-Type": "application/json",
-            "X-API-Key-ID": GNANI_API_KEY,
-        },
-        json={
-            "text": text,
-            "voice": "Shivani",
-            "model": "timbre-v3.0",
-            "language": locale,
-            "speed": 1.0,
-            "audio_config": {
-                "sample_rate": 24000,
-                "num_channels": 1,
-                "sample_width": 2,
-                "encoding": "linear_pcm",
-                "container": "wav",
-            },
-        },
-        timeout=60,
-    )
-
-    response.raise_for_status()
-
-    data, rate = sf.read(io.BytesIO(response.content))
-    sd.play(data, rate)
-    sd.wait()
 
 
 # 5. Shared data used by the tools
@@ -281,8 +204,7 @@ def select_schemes(
     """
 
     # check the key BEFORE the slow ranking step
-    if not GNANI_API_KEY:
-        raise ValueError("Please set the GNANI_API_KEY environment variable.")
+    require_api_key()
 
     # take the details from the intake agent
     if profile is None:
@@ -317,35 +239,21 @@ def select_schemes(
 
     # the agent speaks first and presents the top schemes
     reply = ask_agent("Hello")
-    print("ai:", reply)
-    speak(reply, locale)
+    tell(reply, locale)
 
     while not confirmed["done"]:
-        typed = input("\nPress Enter to speak (or type your answer): ").strip()
+        query = get_user_query(locale)
 
-        if typed.lower() in ["exit", "bye"]:
+        if query is None:
+            continue
+
+        if query.lower() in ["exit", "bye"]:
             break
-
-        if typed:
-            query = typed
-        else:
-            wav_path = record_audio()
-
-            if not wav_path:
-                print("No audio recorded, try again.")
-                continue
-
-            query = speech_to_text(wav_path, locale)
-
-            if not query:
-                print("Could not understand the audio, try again.")
-                continue
 
         print("user:", query)
 
         reply = ask_agent(query)
-        print("ai:", reply)
-        speak(reply, locale)
+        tell(reply, locale)
 
     if not confirmed["done"]:
         return None

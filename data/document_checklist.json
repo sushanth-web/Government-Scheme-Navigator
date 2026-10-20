@@ -3,7 +3,7 @@
     "age": 30,
     "gender": "male",
     "state": "Andhra Pradesh",
-    "district": "godavari",
+    "district": "amalapuram",
     "occupation": "farmer",
     "annual_income": 100000
   },
@@ -12,14 +12,111 @@
   "schemes": [
     {
       "scheme": "Annadata Sukhibhava AP",
-      "documents": [],
-      "start_date": "not found in documents",
-      "deadline": "not found in documents",
+      "documents": [
+        {
+          "name": "Aadhaar card",
+          "note": "mandatory"
+        },
+        {
+          "name": "Bank passbook",
+          "note": "Aadhaar-linked account"
+        },
+        {
+          "name": "Land ownership document (Pattadar Passbook)",
+          "note": ""
+        },
+        {
+          "name": "Mobile number",
+          "note": "linked with Aadhaar for OTP"
+        },
+        {
+          "name": "PM Kisan registration number",
+          "note": ""
+        },
+        {
+          "name": "Passport-size photograph",
+          "note": ""
+        },
+        {
+          "name": "Ration card",
+          "note": "for family verification, if asked"
+        },
+        {
+          "name": "Income certificate",
+          "note": "required only if specifically requested or to prove eligibility"
+        }
+      ],
+      "start_date": "none",
+      "deadline": "none",
       "dates_source": "none",
-      "how_to_apply": [],
-      "other_requirements": [],
-      "where_to_apply": "not found in documents"
+      "how_to_apply": [
+        "Open the official website: annadathasukhibhava.ap.gov.in",
+        "Click on \"New Registration\" or \"Farmer Registration\"",
+        "Enter Aadhaar number and verify with OTP sent to mobile",
+        "Fill in personal details such as name, father's name, mobile number, address",
+        "Enter land details including survey number, extent, village, mandal, district",
+        "Upload scanned copies of Aadhaar, bank passbook, and land document",
+        "Link Aadhaar with bank account (NPCI mapping)",
+        "Submit the form and note down application reference number",
+        "Track application status regularly using reference number"
+      ],
+      "other_requirements": [
+        "Only one member per family/household is eligible",
+        "No member of the beneficiary family should be a registered income taxpayer",
+        "Aadhaar linked with bank account (NPCI mapping)",
+        "Mobile number linked with Aadhaar"
+      ],
+      "where_to_apply": "Online at annadathasukhibhava.ap.gov.in or offline at nearest Rythu Seva Kendra (RSK)"
     }
   ],
-  "checklist": []
+  "checklist": [
+    {
+      "document": "Aadhaar card",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "Bank passbook",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "Land ownership document (Pattadar Passbook)",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "Mobile number",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "PM Kisan registration number",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "Passport-size photograph",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "Ration card",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    },
+    {
+      "document": "Income certificate",
+      "needed_for": [
+        "Annadata Sukhibhava AP"
+      ]
+    }
+  ]
 }

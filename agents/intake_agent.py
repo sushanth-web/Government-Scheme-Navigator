@@ -1,12 +1,6 @@
-import io
 import json
 import os
 from typing import Optional
-
-import numpy as np
-import requests
-import sounddevice as sd
-import soundfile as sf
 
 from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
@@ -14,17 +8,10 @@ from langchain.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agents.audio_utils import get_user_query, require_api_key, tell
+
 
 load_dotenv()
-
-# 1. API keys (set these as environment variables, never hardcode them)
-#    The check now runs inside get_profile(), so importing this file
-#    never fails or asks questions.
-GNANI_API_KEY = os.getenv("GNANI_API_KEY")
-
-STT_URL = "https://api.vachana.ai/stt/v3"
-TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
-SAMPLE_RATE = 16000
 
 # the profile is saved here so other agents can read it later
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -48,74 +35,6 @@ def get_llm(
         timeout=180,
         max_completion_tokens=1024,
     )
-
-
-# 3. Voice: record from the microphone
-def record_audio(path: str = "input.wav") -> Optional[str]:
-    chunks = []
-
-    def callback(indata, frames, time, status):
-        chunks.append(indata.copy())
-
-    print("Listening... speak now, press Enter when you are done.")
-
-    with sd.InputStream(
-        samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=callback
-    ):
-        input()
-
-    if not chunks:
-        return None
-
-    sf.write(path, np.concatenate(chunks), SAMPLE_RATE)
-    return path
-
-
-# 4. Voice: Gnani speech-to-text (max 60 seconds per clip)
-def speech_to_text(wav_path: str, locale: str) -> str:
-    with open(wav_path, "rb") as f:
-        response = requests.post(
-            STT_URL,
-            headers={"X-API-Key-ID": GNANI_API_KEY},
-            files={"audio_file": f},
-            data={"language_code": locale, "format": "transcribe"},
-            timeout=60,
-        )
-
-    response.raise_for_status()
-    return response.json().get("transcript", "").strip()
-
-
-# 5. Voice: Gnani text-to-speech, then play the audio
-def speak(text: str, locale: str):
-    response = requests.post(
-        TTS_URL,
-        headers={
-            "Content-Type": "application/json",
-            "X-API-Key-ID": GNANI_API_KEY,
-        },
-        json={
-            "text": text,
-            "voice": "Shivani",
-            "model": "timbre-v3.0",
-            "language": locale,
-            "speed": 1.0,
-            "audio_config": {
-                "sample_rate": 24000,
-                "num_channels": 1,
-                "sample_width": 2,
-                "encoding": "linear_pcm",
-                "container": "wav",
-            },
-        },
-        timeout=60,
-    )
-
-    response.raise_for_status()
-
-    data, rate = sf.read(io.BytesIO(response.content))
-    sd.play(data, rate)
-    sd.wait()
 
 
 # 6. The user profile we want to fill (stored in English)
@@ -244,8 +163,7 @@ def get_profile(
     The profile is also saved to data/profile.json (see load_profile).
     """
 
-    if not GNANI_API_KEY:
-        raise ValueError("Please set the GNANI_API_KEY environment variable.")
+    require_api_key()
 
     # start fresh, in case this function is called more than once
     for key in profile:
@@ -268,35 +186,21 @@ def get_profile(
 
     # 12. Voice chat loop
     reply = ask_agent("Hello")
-    print("ai:", reply)
-    speak(reply, locale)
+    tell(reply, locale)
 
     while not confirmed["done"]:
-        typed = input("\nPress Enter to speak (or type your answer): ").strip()
+        query = get_user_query(locale)
 
-        if typed.lower() in ["exit", "bye"]:
+        if query is None:
+            continue
+
+        if query.lower() in ["exit", "bye"]:
             break
-
-        if typed:
-            query = typed
-        else:
-            wav_path = record_audio()
-
-            if not wav_path:
-                print("No audio recorded, try again.")
-                continue
-
-            query = speech_to_text(wav_path, locale)
-
-            if not query:
-                print("Could not understand the audio, try again.")
-                continue
 
         print("user:", query)
 
         reply = ask_agent(query)
-        print("ai:", reply)
-        speak(reply, locale)
+        tell(reply, locale)
 
     if not confirmed["done"]:
         return None

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1120" viewBox="0 0 1400 1120" role="img" aria-labelledby="title description">
+  <title id="title">Government Scheme Navigator workflow</title>
+  <desc id="description">Collect profile details, check required fields, select a scheme, and build a document checklist. Incomplete intake or no chosen scheme ends the workflow early.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#172554"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#020617" flood-opacity=".35"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M1 1 11 6 1 11" fill="none" stroke="#67e8f9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: "Segoe UI", Arial, sans-serif; }
+      .line { fill: none; stroke: #67e8f9; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .label { fill: #a5f3fc; font-size: 17px; font-weight: 700; }
+      .title { fill: #f8fafc; font-size: 37px; font-weight: 700; }
+      .subtitle { fill: #cbd5e1; font-size: 18px; }
+      .card-title { fill: #f8fafc; font-size: 22px; font-weight: 700; }
+      .card-copy { fill: #cbd5e1; font-size: 16px; }
+      .small { fill: #cbd5e1; font-size: 15px; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="1120" rx="28" fill="url(#background)"/>
+  <circle cx="1180" cy="150" r="190" fill="#4338ca" opacity=".12"/>
+  <circle cx="160" cy="960" r="220" fill="#0891b2" opacity=".10"/>
+
+  <text x="700" y="66" text-anchor="middle" class="title">Government Scheme Navigator</text>
+  <text x="700" y="98" text-anchor="middle" class="subtitle">Voice-guided profile intake, scheme selection, and document checklist</text>
+
+  <g filter="url(#shadow)">
+    <rect x="620" y="126" width="160" height="54" rx="27" fill="#164e63" stroke="#67e8f9" stroke-width="2"/>
+    <text x="700" y="160" text-anchor="middle" fill="#ecfeff" font-size="18" font-weight="700">START</text>
+
+    <rect x="480" y="228" width="440" height="112" rx="18" fill="#172554" stroke="#6366f1" stroke-width="2"/>
+    <circle cx="524" cy="270" r="20" fill="url(#accent)"/>
+    <text x="524" y="276" text-anchor="middle" fill="#0b1220" font-size="16" font-weight="700">1</text>
+    <text x="560" y="269" class="card-title">Intake: collect user profile</text>
+    <text x="560" y="299" class="card-copy">Capture required details and preferred language</text>
+    <text x="560" y="322" class="card-copy">Keep the existing state value</text>
+
+    <polygon points="700,386 832,452 700,518 568,452" fill="#312e81" stroke="#a5b4fc" stroke-width="2"/>
+    <text x="700" y="445" text-anchor="middle" class="card-title" font-size="18">All required</text>
+    <text x="700" y="470" text-anchor="middle" class="card-title" font-size="18">fields present?</text>
+
+    <rect x="480" y="568" width="440" height="112" rx="18" fill="#172554" stroke="#6366f1" stroke-width="2"/>
+    <circle cx="524" cy="610" r="20" fill="url(#accent)"/>
+    <text x="524" y="616" text-anchor="middle" fill="#0b1220" font-size="16" font-weight="700">2</text>
+    <text x="560" y="609" class="card-title">Select and rank schemes</text>
+    <text x="560" y="639" class="card-copy">Compare the profile with schemes and present</text>
+    <text x="560" y="662" class="card-copy">options for the user to choose by voice</text>
+
+    <polygon points="700,728 832,794 700,860 568,794" fill="#312e81" stroke="#a5b4fc" stroke-width="2"/>
+    <text x="700" y="787" text-anchor="middle" class="card-title" font-size="18">Any scheme</text>
+    <text x="700" y="812" text-anchor="middle" class="card-title" font-size="18">selected?</text>
+
+    <rect x="480" y="914" width="440" height="112" rx="18" fill="#172554" stroke="#22d3ee" stroke-width="2"/>
+    <circle cx="524" cy="956" r="20" fill="url(#accent)"/>
+    <text x="524" y="962" text-anchor="middle" fill="#0b1220" font-size="16" font-weight="700">3</text>
+    <text x="560" y="955" class="card-title">Build document checklist</text>
+    <text x="560" y="985" class="card-copy">Prepare scheme details and combined documents</text>
+    <text x="560" y="1008" class="card-copy">for the schemes the user selected</text>
+
+    <rect x="620" y="1050" width="160" height="48" rx="24" fill="#164e63" stroke="#67e8f9" stroke-width="2"/>
+    <text x="700" y="1080" text-anchor="middle" fill="#ecfeff" font-size="18" font-weight="700">END</text>
+
+    <rect x="88" y="415" width="255" height="76" rx="16" fill="#3f1d36" stroke="#fb7185" stroke-width="2"/>
+    <text x="215" y="446" text-anchor="middle" fill="#ffe4e6" font-size="18" font-weight="700">End: intake incomplete</text>
+    <text x="215" y="470" text-anchor="middle" class="small">Required profile details are missing</text>
+
+    <rect x="88" y="756" width="255" height="76" rx="16" fill="#3f1d36" stroke="#fb7185" stroke-width="2"/>
+    <text x="215" y="787" text-anchor="middle" fill="#ffe4e6" font-size="18" font-weight="700">End: no scheme selected</text>
+    <text x="215" y="811" text-anchor="middle" class="small">User did not choose a scheme</text>
+  </g>
+
+  <path class="line" d="M700 180 V218"/>
+  <path class="line" d="M700 340 V376"/>
+  <path class="line" d="M700 518 V558"/>
+  <path class="line" d="M700 680 V718"/>
+  <path class="line" d="M700 860 V904"/>
+  <path class="line" d="M700 1026 V1040"/>
+
+  <path class="line" d="M568 452 H355"/>
+  <text x="443" y="438" text-anchor="middle" class="label">No</text>
+  <path class="line" d="M832 452 H1015 V1080 H795"/>
+  <text x="875" y="438" text-anchor="middle" class="label">Yes</text>
+
+  <path class="line" d="M568 794 H355"/>
+  <text x="443" y="780" text-anchor="middle" class="label">No</text>
+  <path class="line" d="M832 794 H1015 V970 H930"/>
+  <text x="875" y="780" text-anchor="middle" class="label">Yes</text>
+</svg>
