@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="460" height="960" viewBox="0 0 460 960" role="img" aria-labelledby="title desc">
+  <title id="title">SchemeSage mobile conversation reference</title>
+  <desc id="desc">Mobile SchemeSage chat layout with selected language, conversational profile cards, and persistent text and microphone actions.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#faf9f4"/><stop offset="1" stop-color="#f1f0e9"/></linearGradient>
+    <style>text{font-family:Arial,"Segoe UI",sans-serif}.ink{fill:#173d35}.muted{fill:#7d887e}.tiny{font-size:10px}.small{font-size:12px}.native{font-size:14px}</style>
+  </defs>
+  <rect width="460" height="960" rx="34" fill="#e3e4dc"/>
+  <rect x="11" y="10" width="438" height="940" rx="29" fill="url(#paper)"/>
+  <rect x="163" y="17" width="134" height="17" rx="9" fill="#173d35"/>
+  <rect x="25" y="49" width="410" height="73" rx="12" fill="#f9f8f2"/>
+  <rect x="42" y="68" width="34" height="34" rx="10" fill="#e5eee4"/><path d="m59 73 11 6v11l-11 6-11-6V79l11-6Z" fill="none" stroke="#477861" stroke-width="2"/><path d="m54 84 4 4 7-8" fill="none" stroke="#477861" stroke-width="2" stroke-linecap="round"/>
+  <text x="87" y="86" class="ink small" font-weight="700">Scheme<tspan fill="#477861" font-weight="400">Sage</tspan></text>
+  <text x="87" y="102" class="muted tiny">A clearer path to public benefits</text>
+  <rect x="328" y="69" width="72" height="29" rx="15" fill="#fffefa" stroke="#e2e2d7"/><text x="344" y="88" class="muted tiny">हिन्दी ⌄</text>
+  <rect x="25" y="133" width="410" height="718" rx="14" fill="#fffefa" stroke="#e1e2d8"/>
+  <circle cx="54" cy="165" r="17" fill="#e5efe5"/><text x="48" y="170" fill="#477861" class="small">✦</text>
+  <text x="82" y="162" class="ink small" font-weight="700">SchemeSage</text><circle cx="85" cy="178" r="3" fill="#66a474"/><text x="94" y="181" class="muted tiny">Ready to help</text>
+  <text x="391" y="171" class="muted tiny">◎</text>
+  <path d="M25 195h410" stroke="#eeede6"/><rect x="25" y="195" width="134" height="3" rx="2" fill="#74a17a"/>
+  <text x="230" y="220" text-anchor="middle" class="muted tiny" letter-spacing="1">A NEW CONVERSATION</text>
+  <rect x="45" y="241" width="361" height="91" rx="12" fill="#f4f5ef" stroke="#e6e8df"/>
+  <text x="61" y="267" class="ink native">नमस्ते! मैं SchemeSage हूँ।</text><text x="61" y="289" class="ink native">सरकारी योजनाएँ खोजने के लिए</text><text x="61" y="311" class="ink native">कुछ सवाल पूछूँगा। आपकी उम्र?</text>
+  <text x="61" y="324" class="muted tiny">◖)))  Listen</text>
+  <rect x="183" y="349" width="222" height="53" rx="12" fill="#f4c96e"/><text x="199" y="381" class="ink native">मेरी उम्र 38 साल है</text>
+  <rect x="45" y="421" width="363" height="100" rx="12" fill="#f4f5ef" stroke="#e6e8df"/>
+  <text x="61" y="448" class="ink native">धन्यवाद। आप कौन सा काम करते</text><text x="61" y="470" class="ink native">हैं और किस जिले में रहते हैं?</text>
+  <text x="61" y="506" class="muted tiny">◖)))  Listen</text>
+  <rect x="45" y="540" width="210" height="57" rx="12" fill="#f4f5ef" stroke="#e6e8df"/>
+  <circle cx="64" cy="568" r="7" fill="none" stroke="#67816d" stroke-width="2" stroke-dasharray="22 9"/>
+  <text x="80" y="572" class="muted tiny">आपकी जानकारी देख रहा हूँ…</text>
+  <rect x="42" y="762" width="375" height="58" rx="13" fill="#fbfcf7" stroke="#dfe5d9"/>
+  <text x="60" y="796" class="muted small">अपना जवाब यहाँ लिखें...</text>
+  <circle cx="354" cy="791" r="19" fill="#e8eee4"/><path d="M354 781v12m-7-6a7 7 0 0 0 14 0m-7 8v6" fill="none" stroke="#55785e" stroke-width="1.7" stroke-linecap="round"/>
+  <circle cx="398" cy="791" r="19" fill="#234a3c"/><path d="m390 791 14-5-5 14-2-5-7-4Z" fill="none" stroke="white" stroke-width="1.6" stroke-linejoin="round"/>
+  <text x="230" y="837" text-anchor="middle" class="muted tiny">Demo · Not connected to live scheme data</text>
+  <text x="103" y="903" class="muted tiny">●</text><text x="174" y="903" class="muted tiny">○</text><text x="245" y="903" class="muted tiny">○</text>
+</svg>

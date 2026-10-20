@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">SchemeSage conversation interface reference</title>
+  <desc id="desc">Desktop conversation screen with a journey sidebar, multilingual assistant chat, loading indicator, voice and text composer, and profile summary.</desc>
+  <defs><style>text{font-family:Arial,"Segoe UI",sans-serif}.ink{fill:#173d35}.muted{fill:#7d887e}.tiny{font-size:10px}.small{font-size:12px}.bold{font-weight:700}</style><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#1e3d30" flood-opacity=".08"/></filter></defs>
+  <rect width="1440" height="900" fill="#f3f2eb"/>
+  <path d="M32 76h1376" stroke="#e3e2d9"/>
+  <rect x="42" y="20" width="33" height="33" rx="10" fill="#e5eee4"/><path d="m58 25 11 6v11l-11 6-11-6V31l11-6Z" fill="none" stroke="#477861" stroke-width="2"/><path d="m53 36 4 4 7-8" fill="none" stroke="#477861" stroke-width="2" stroke-linecap="round"/>
+  <text x="84" y="42" class="ink" font-size="16" font-weight="700">Scheme<tspan fill="#477861" font-weight="400">Sage</tspan></text>
+  <text x="663" y="42" class="muted tiny" font-weight="700" letter-spacing="1">STEP 02  ───  YOUR CONVERSATION</text>
+  <circle cx="1380" cy="37" r="17" fill="#fffefa" stroke="#e2e2d7"/><text x="1374" y="43" class="muted" font-size="16">×</text>
+  <g>
+    <rect x="32" y="96" width="210" height="742" rx="11" fill="#f9f8f2" stroke="#e6e5db"/>
+    <text x="52" y="127" class="muted tiny" font-weight="700" letter-spacing="1">YOUR JOURNEY</text>
+    <circle cx="62" cy="168" r="12" fill="#e5efe5" stroke="#548266"/><text x="59" y="172" class="ink tiny">1</text><text x="84" y="167" class="ink tiny bold">Tell us about you</text><text x="84" y="183" class="muted tiny">Just a few details</text>
+    <circle cx="62" cy="220" r="12" fill="#fffefa" stroke="#daddd2"/><text x="59" y="224" class="muted tiny">2</text><text x="84" y="219" class="muted tiny bold">Explore schemes</text><text x="84" y="235" class="muted tiny">Review possible matches</text>
+    <circle cx="62" cy="272" r="12" fill="#fffefa" stroke="#daddd2"/><text x="59" y="276" class="muted tiny">3</text><text x="84" y="271" class="muted tiny bold">Your checklist</text><text x="84" y="287" class="muted tiny">Plan what comes next</text>
+    <rect x="47" y="735" width="180" height="69" rx="8" fill="#eef4ec" stroke="#e1eadf"/><text x="59" y="759" fill="#69806b" class="tiny">◇  We never ask for</text><text x="59" y="775" fill="#69806b" class="tiny">Aadhaar, phone or bank details.</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="259" y="96" width="865" height="742" rx="11" fill="#fffefa" stroke="#e1e2d8"/>
+    <circle cx="292" cy="127" r="17" fill="#e5efe5"/><text x="286" y="132" fill="#477861" class="small">✦</text>
+    <text x="320" y="124" class="ink tiny bold">SchemeSage</text><circle cx="323" cy="140" r="3" fill="#66a474"/><text x="332" y="143" class="muted tiny">Ready to help</text>
+    <rect x="1039" y="112" width="55" height="25" rx="13" fill="#fffefa" stroke="#e8e8dd"/><text x="1052" y="129" class="muted tiny">हिन्दी</text>
+    <path d="M260 156h863" stroke="#eeede6"/>
+    <rect x="260" y="156" width="280" height="3" rx="1.5" fill="#74a17a"/>
+    <text x="650" y="184" text-anchor="middle" fill="#a0a79e" class="tiny" font-weight="700" letter-spacing="1">A NEW CONVERSATION</text>
+    <circle cx="291" cy="225" r="12" fill="#e5efe5"/><text x="287" y="229" fill="#477861" class="tiny">✦</text>
+    <rect x="311" y="198" width="515" height="79" rx="11" fill="#f4f5ef" stroke="#e6e8df"/>
+    <text x="328" y="224" class="ink small">नमस्ते! मैं SchemeSage हूँ। सरकारी योजनाएँ खोजने में</text><text x="328" y="243" class="ink small">मदद के लिए कुछ सवाल पूछूँगा। आपकी उम्र क्या है?</text>
+    <text x="328" y="265" class="muted tiny">◖)))  Listen</text>
+    <rect x="889" y="293" width="188" height="47" rx="11" fill="#f4c96e"/><text x="909" y="322" class="ink small">मेरी उम्र 38 साल है</text>
+    <circle cx="291" cy="380" r="12" fill="#e5efe5"/><text x="287" y="384" fill="#477861" class="tiny">✦</text>
+    <rect x="311" y="354" width="514" height="81" rx="11" fill="#f4f5ef" stroke="#e6e8df"/>
+    <text x="328" y="380" class="ink small">धन्यवाद। आप कौन सा काम करते हैं और किस जिले में</text><text x="328" y="399" class="ink small">रहते हैं?</text><text x="328" y="423" class="muted tiny">◖)))  Listen</text>
+    <circle cx="291" cy="473" r="12" fill="#e5efe5"/><text x="287" y="477" fill="#477861" class="tiny">✦</text>
+    <rect x="311" y="453" width="201" height="39" rx="11" fill="#f4f5ef" stroke="#e6e8df"/>
+    <circle cx="331" cy="472" r="6" fill="none" stroke="#67816d" stroke-width="2" stroke-dasharray="22 9"/><text x="346" y="476" class="muted tiny">आपकी जानकारी देख रहा हूँ</text>
+    <rect x="278" y="746" width="826" height="51" rx="10" fill="#fbfcf7" stroke="#dfe5d9"/>
+    <text x="298" y="777" class="muted small">अपना जवाब यहाँ लिखें...</text>
+    <circle cx="1041" cy="771" r="17" fill="#e8eee4"/><path d="M1041 762v11m-6-5a6 6 0 0 0 12 0m-6 7v5" fill="none" stroke="#55785e" stroke-width="1.7" stroke-linecap="round"/>
+    <circle cx="1081" cy="771" r="17" fill="#234a3c"/><path d="m1074 771 13-5-5 13-2-5-6-3Z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+    <text x="591" y="820" text-anchor="middle" class="muted tiny">Demo conversation · Not connected to live scheme data</text>
+  </g>
+  <g>
+    <rect x="1141" y="96" width="267" height="742" rx="11" fill="#f9f8f2" stroke="#e6e5db"/>
+    <text x="1163" y="127" class="muted tiny bold" letter-spacing=".8">YOUR DETAILS</text><text x="1329" y="127" fill="#6c856d" class="tiny">◇ PRIVATE</text>
+    <path d="M1161 145h225" stroke="#e9e9df"/>
+    <text x="1163" y="174" class="muted tiny">Age</text><text x="1163" y="193" class="ink tiny bold">38</text>
+    <path d="M1161 207h225" stroke="#e9e9df"/>
+    <text x="1163" y="234" class="muted tiny">Gender</text><text x="1163" y="253" class="ink tiny bold">Not yet shared</text>
+    <path d="M1161 267h225" stroke="#e9e9df"/>
+    <text x="1163" y="294" class="muted tiny">Occupation</text><text x="1163" y="313" class="ink tiny bold">Not yet shared</text>
+    <path d="M1161 327h225" stroke="#e9e9df"/>
+    <text x="1163" y="354" class="muted tiny">District</text><text x="1163" y="373" class="ink tiny bold">Not yet shared</text>
+    <path d="M1161 387h225" stroke="#e9e9df"/>
+    <text x="1163" y="414" class="muted tiny">Annual income</text><text x="1163" y="433" class="ink tiny bold">Not yet shared</text>
+    <rect x="1158" y="487" width="234" height="62" rx="8" fill="#edf3ea"/><text x="1170" y="510" fill="#69806b" class="tiny">◇  Only share what you're</text><text x="1170" y="527" fill="#69806b" class="tiny">comfortable sharing.</text>
+    <rect x="1158" y="574" width="234" height="58" rx="8" fill="#fffefa" stroke="#e6e7dd"/><text x="1170" y="598" class="ink tiny bold">◖  Spoken replies</text><text x="1170" y="615" class="muted tiny">On in this browser</text><rect x="1350" y="592" width="25" height="14" rx="7" fill="#6c9874"/><circle cx="1368" cy="599" r="5" fill="white"/>
+  </g>
+</svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="850" viewBox="0 0 1200 850" role="img" aria-labelledby="title desc">
+  <title id="title">SchemeSage language selection screen reference</title>
+  <desc id="desc">Language selection screen with ten native script choices and a continue button.</desc>
+  <defs><style>text{font-family:Arial,"Segoe UI",sans-serif}.ink{fill:#173d35}.muted{fill:#78847b}.green{fill:#477861}.eyebrow{font-size:11px;font-weight:700;letter-spacing:1.8px}.title{font-size:40px;font-weight:700;letter-spacing:-1.5px}.native{font-size:24px;font-weight:700}.small{font-size:13px}</style></defs>
+  <rect width="1200" height="850" fill="#f3f2eb"/>
+  <rect x="35" y="26" width="1130" height="68" rx="13" fill="#f8f7f1"/>
+  <rect x="58" y="43" width="34" height="34" rx="10" fill="#e5eee4"/><path d="m75 48 11 6v11l-11 6-11-6V54l11-6Z" fill="none" stroke="#477861" stroke-width="2"/><path d="m70 59 4 4 7-8" fill="none" stroke="#477861" stroke-width="2" stroke-linecap="round"/>
+  <text x="101" y="65" class="ink" font-size="17" font-weight="700">Scheme<tspan class="green" font-weight="400">Sage</tspan></text>
+  <rect x="1116" y="43" width="35" height="35" rx="17" fill="#fffefa" stroke="#e2e2d7"/><text x="1128" y="66" class="muted" font-size="18">×</text>
+  <rect x="188" y="125" width="824" height="672" rx="17" fill="#fffefa" stroke="#e7e6dc"/>
+  <text x="221" y="163" class="muted small">←  Back to SchemeSage</text>
+  <text x="600" y="221" text-anchor="middle" class="green eyebrow">◎  START WITH WHAT FEELS FAMILIAR</text>
+  <text x="600" y="274" text-anchor="middle" class="ink title">Which language would</text>
+  <text x="600" y="322" text-anchor="middle" class="ink title">you like to speak?</text>
+  <text x="600" y="354" text-anchor="middle" class="muted small">Your assistant will speak and write in your selected language.</text>
+  <g>
+    <rect x="224" y="390" width="145" height="107" rx="9" fill="#edf3eb" stroke="#477861" stroke-width="2"/><text x="296" y="437" text-anchor="middle" class="ink native">हिन्दी</text><text x="296" y="474" text-anchor="middle" class="muted small">Hindi</text><circle cx="351" cy="406" r="10" fill="#477861"/><path d="m347 406 3 3 5-6" fill="none" stroke="white" stroke-width="1.7"/>
+    <rect x="381" y="390" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="453" y="437" text-anchor="middle" class="ink native">বাংলা</text><text x="453" y="474" text-anchor="middle" class="muted small">Bengali</text>
+    <rect x="538" y="390" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="610" y="437" text-anchor="middle" class="ink native">ગુજરાતી</text><text x="610" y="474" text-anchor="middle" class="muted small">Gujarati</text>
+    <rect x="695" y="390" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="767" y="437" text-anchor="middle" class="ink native" font-size="21">English</text><text x="767" y="474" text-anchor="middle" class="muted small">English</text>
+    <rect x="852" y="390" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="924" y="437" text-anchor="middle" class="ink native">తెలుగు</text><text x="924" y="474" text-anchor="middle" class="muted small">Telugu</text>
+    <rect x="224" y="510" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="296" y="557" text-anchor="middle" class="ink native">मराठी</text><text x="296" y="594" text-anchor="middle" class="muted small">Marathi</text>
+    <rect x="381" y="510" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="453" y="557" text-anchor="middle" class="ink native">தமிழ்</text><text x="453" y="594" text-anchor="middle" class="muted small">Tamil</text>
+    <rect x="538" y="510" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="610" y="557" text-anchor="middle" class="ink native">ಕನ್ನಡ</text><text x="610" y="594" text-anchor="middle" class="muted small">Kannada</text>
+    <rect x="695" y="510" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="767" y="557" text-anchor="middle" class="ink native">മലയാളം</text><text x="767" y="594" text-anchor="middle" class="muted small">Malayalam</text>
+    <rect x="852" y="510" width="145" height="107" rx="9" fill="#fcfbf7" stroke="#e8e6dd"/><text x="924" y="557" text-anchor="middle" class="ink native">ਪੰਜਾਬੀ</text><text x="924" y="594" text-anchor="middle" class="muted small">Punjabi</text>
+  </g>
+  <path d="M222 649h775" stroke="#eeede6"/>
+  <text x="229" y="694" class="muted small">▢  Your language choice stays on this device.</text>
+  <rect x="773" y="670" width="224" height="50" rx="7" fill="#edaa4b"/><text x="805" y="701" class="ink small" font-weight="700">Start conversation</text><text x="968" y="701" class="ink small">→</text>
+</svg>
