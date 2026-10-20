@@ -2,10 +2,10 @@
   "language": "English",
   "locale": "en-IN",
   "profile": {
-    "age": 18,
+    "age": 30,
     "gender": "male",
-    "occupation": "student",
-    "district": "vijayawada",
+    "occupation": "farmer",
+    "district": "godavari",
     "annual_income": 100000,
     "land_acres": null,
     "caste_category": null

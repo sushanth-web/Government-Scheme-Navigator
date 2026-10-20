@@ -1,13 +1,14 @@
 {
   "profile": {
-    "age": 38,
+    "age": 30,
+    "gender": "male",
+    "state": "Andhra Pradesh",
+    "district": "godavari",
     "occupation": "farmer",
-    "district": "East Godavari",
-    "annual_income": 125000,
-    "land_acres": 3,
-    "caste_category": "SC"
+    "annual_income": 100000
   },
-  "language": "Telugu",
+  "language": "English",
+  "locale": "en-IN",
   "schemes": [
     {
       "scheme": "Annadata Sukhibhava AP",

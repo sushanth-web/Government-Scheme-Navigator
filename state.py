@@ -24,5 +24,9 @@ class UserProfile(BaseModel):
     ranked_schemes: Optional[str] = None
     selected_schemes: list[str] = []
 
+    # filled by document_node
+    scheme_details: list[dict] = []      # per scheme: documents, dates, steps
+    document_checklist: list[dict] = []  # one combined list: document + needed_for
+
 
 REQUIRED_FIELDS = ["age", "gender", "occupation", "district", "annual_income"]

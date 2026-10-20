@@ -1,10 +1,10 @@
 {
   "profile": {
-    "age": 18,
+    "age": 30,
     "gender": "male",
     "state": "Andhra Pradesh",
-    "district": "vijayawada",
-    "occupation": "student",
+    "district": "godavari",
+    "occupation": "farmer",
     "annual_income": 100000
   },
   "language": "English",

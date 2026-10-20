@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, START, END
 from state import UserProfile, REQUIRED_FIELDS
 from agents.intake_agent import get_profile, load_language
 from agents.eligibilty_agent import select_schemes
+from agents.document_agent import build_document_checklist
 
 
 # 1. The caste values your UserProfile accepts
@@ -53,24 +54,27 @@ def intake_node(state: UserProfile) -> UserProfile:
     )
 
 
-# 3. Scheme selection node: takes the profile filled by the intake node,
-#    compares it with the scheme documents and lets the user choose by voice
-def scheme_selection_node(state: UserProfile) -> UserProfile:
-    """Compares the profile from the intake node with all the schemes in the
-    documents, tells the user the best ones by voice and saves the schemes
-    the user chooses"""
-
-    # the profile the intake node filled (skip empty details)
+# 3. The profile details that go to the later agents (empty ones are skipped)
+def profile_of(state: UserProfile) -> dict:
     profile = state.model_dump(
         include={
             "age", "gender", "state", "district", "occupation",
             "annual_income", "land_acres", "caste_category",
         }
     )
-    profile = {key: value for key, value in profile.items() if value is not None}
+
+    return {key: value for key, value in profile.items() if value is not None}
+
+
+# 4. Scheme selection node: takes the profile filled by the intake node,
+#    compares it with the scheme documents and lets the user choose by voice
+def scheme_selection_node(state: UserProfile) -> UserProfile:
+    """Compares the profile from the intake node with all the schemes in the
+    documents, tells the user the best ones by voice and saves the schemes
+    the user chooses"""
 
     # same language the user chose in the intake node
-    result = select_schemes(profile, state.language, state.locale)
+    result = select_schemes(profile_of(state), state.language, state.locale)
 
     if result is None:
         print("Scheme selection was not completed. The state is unchanged.")
@@ -87,11 +91,32 @@ def scheme_selection_node(state: UserProfile) -> UserProfile:
     )
 
 
-# 4. The graph
+# 5. Document node: documents, dates and steps for the schemes the user chose,
+#    told to the user by voice in the selected language
+def document_node(state: UserProfile) -> UserProfile:
+    """Builds the document checklist for the selected schemes"""
+
+    result = build_document_checklist(
+        profile_of(state),
+        state.selected_schemes,
+        state.language,
+        state.locale,
+    )
+
+    return state.model_copy(
+        update={
+            "scheme_details": result["schemes"],
+            "document_checklist": result["checklist"],
+        }
+    )
+
+
+# 6. The graph
 builder = StateGraph(UserProfile)
 
 builder.add_node("intake", intake_node)
 builder.add_node("scheme_selection", scheme_selection_node)
+builder.add_node("document_checklist", document_node)
 
 def after_intake(state: UserProfile) -> str:
     """Go on to scheme selection only if intake filled every required detail (age, gender, ...)"""
@@ -105,9 +130,20 @@ def after_intake(state: UserProfile) -> str:
     return "scheme_selection"
 
 
+def after_selection(state: UserProfile) -> str:
+    """Go on to the document checklist only if the user chose a scheme"""
+
+    if not state.selected_schemes:
+        print("Stopping, no scheme was selected.")
+        return END
+
+    return "document_checklist"
+
+
 builder.add_edge(START, "intake")
 builder.add_conditional_edges("intake", after_intake)
-builder.add_edge("scheme_selection", END)
+builder.add_conditional_edges("scheme_selection", after_selection)
+builder.add_edge("document_checklist", END)
 
 graph = builder.compile()
 
