@@ -1,5 +1,7 @@
 import io
 import os
+import shutil
+import subprocess
 from typing import Optional
 
 import numpy as np
@@ -7,6 +9,7 @@ import requests
 import sounddevice as sd
 import soundfile as sf
 from dotenv import load_dotenv
+from agents.http_clients import create_retry_session
 
 
 load_dotenv()
@@ -15,6 +18,7 @@ STT_URL = "https://api.vachana.ai/stt/v3"
 TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
 SAMPLE_RATE = 16000
 DEFAULT_AUDIO_PATH = "input.wav"
+_HTTP_SESSION = create_retry_session()
 
 
 def _get_api_key() -> str:
@@ -53,20 +57,70 @@ def record_audio(path: str = DEFAULT_AUDIO_PATH) -> Optional[str]:
 
 def speech_to_text(wav_path: str, locale: str) -> str:
     with open(wav_path, "rb") as audio_file:
-        response = requests.post(
-            STT_URL,
-            headers={"X-API-Key-ID": _get_api_key()},
-            files={"audio_file": audio_file},
-            data={"language_code": locale, "format": "transcribe"},
-            timeout=60,
-        )
+        return speech_to_text_bytes(audio_file.read(), os.path.basename(wav_path), locale)
 
+
+def speech_to_text_bytes(audio: bytes, filename: str, locale: str) -> str:
+    """Transcribe an uploaded audio payload without writing it to disk."""
+    response = _HTTP_SESSION.post(
+        STT_URL,
+        headers={"X-API-Key-ID": _get_api_key()},
+        files={"audio_file": (filename, audio)},
+        data={"language_code": locale, "format": "transcribe"},
+        timeout=(5, 40),
+    )
     response.raise_for_status()
     return response.json().get("transcript", "").strip()
 
 
-def speak(text: str, locale: str) -> None:
-    response = requests.post(
+def convert_audio_to_wav(audio: bytes, filename: str) -> bytes:
+    """Decode browser audio formats into mono 16 kHz PCM WAV using FFmpeg."""
+    executable = shutil.which("ffmpeg")
+    if executable is None:
+        import imageio_ffmpeg
+
+        executable = imageio_ffmpeg.get_ffmpeg_exe()
+    try:
+        result = subprocess.run(
+            [
+                executable,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-f",
+                "wav",
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(SAMPLE_RATE),
+                "pipe:1",
+            ],
+            input=audio,
+            capture_output=True,
+            check=False,
+            timeout=45,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("FFmpeg is required to process browser audio.") from error
+    except subprocess.TimeoutExpired as error:
+        raise ValueError("Audio conversion timed out.") from error
+
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ValueError(f"Unable to decode the uploaded audio: {detail[:300]}")
+    if not result.stdout:
+        raise ValueError("FFmpeg returned an empty WAV file.")
+    return result.stdout
+
+
+def synthesize_speech(text: str, locale: str) -> bytes:
+    """Return a WAV audio reply from the configured speech service."""
+    response = _HTTP_SESSION.post(
         TTS_URL,
         headers={
             "Content-Type": "application/json",
@@ -86,11 +140,14 @@ def speak(text: str, locale: str) -> None:
                 "container": "wav",
             },
         },
-        timeout=60,
+        timeout=(5, 40),
     )
     response.raise_for_status()
+    return response.content
 
-    audio_data, sample_rate = sf.read(io.BytesIO(response.content))
+
+def speak(text: str, locale: str) -> None:
+    audio_data, sample_rate = sf.read(io.BytesIO(synthesize_speech(text, locale)))
     sd.play(audio_data, sample_rate)
     sd.wait()
 

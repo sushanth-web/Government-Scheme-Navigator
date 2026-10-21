@@ -5,21 +5,19 @@ import {
   AudioLines,
   Check,
   CheckCircle2,
-  ChevronRight,
   CircleHelp,
   FileCheck2,
   Globe2,
-  Headphones,
   Leaf,
   LoaderCircle,
   LockKeyhole,
   Menu,
   Mic,
   MicOff,
-  Pause,
   Send,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Volume2,
   X,
 } from "lucide-react";
@@ -31,17 +29,24 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { getConversationCopy, demoDocuments, demoSchemes, profileFields } from "./data/conversation";
+import { getConversationCopy } from "./data/conversation";
 import { languages } from "./data/languages";
 import type {
   AppLanguage,
   ChatMessage,
   ProfileField,
-  SpeechRecognition,
-  SpeechRecognitionEvent,
+  TurnResponse,
 } from "./types";
 
 const LANGUAGE_STORAGE_KEY = "schemesage-language";
+const PRIVACY_NOTICE_VERSION = "2026-10-21";
+
+function getRequestError(error: unknown): string {
+  if (error instanceof TypeError) {
+    return "Could not reach SchemeSage. Check your internet connection and try again.";
+  }
+  return error instanceof Error ? error.message : "Unable to reach the assistant.";
+}
 
 function readSavedLanguage(): AppLanguage | null {
   try {
@@ -323,133 +328,413 @@ function ConversationPage() {
   return <ConversationExperience key={language.locale} language={language} navigate={navigate} />;
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+
+async function readEventStream(
+  response: Response,
+  onStatus: (status: string) => void,
+): Promise<TurnResponse> {
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(body.detail || `Request failed (${response.status}).`);
+  }
+  if (!response.body) throw new Error("The server did not provide a response stream.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let reply: TurnResponse | null = null;
+
+  function consume(block: string) {
+    let eventName = "message";
+    const data: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    }
+    if (eventName === "status" && data.length) {
+      onStatus((JSON.parse(data.join("\n")) as { status: string }).status);
+    } else if (eventName === "error" && data.length) {
+      throw new Error((JSON.parse(data.join("\n")) as { message: string }).message);
+    } else if (eventName === "reply" && data.length) {
+      reply = JSON.parse(data.join("\n")) as TurnResponse;
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) consume(block);
+    if (done) break;
+  }
+  if (buffer.trim()) consume(buffer);
+  if (!reply) throw new Error("The server closed the stream without a reply.");
+  return reply;
+}
+
+function makeAudioUrl(encoded: string | null | undefined): string | undefined {
+  if (!encoded) return undefined;
+  const binary = window.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
+
+const profileFieldMap: Array<{ key: string; field: ProfileField }> = [
+  { key: "age", field: "age" },
+  { key: "gender", field: "gender" },
+  { key: "occupation", field: "occupation" },
+  { key: "district", field: "district" },
+  { key: "annual_income", field: "income" },
+];
+
+const optionalProfileLabels: Record<string, string> = {
+  land_acres: "Land (acres)",
+  caste_category: "Caste category",
+  household_size: "Household members",
+  student_course: "Student course",
+  disability_status: "Disability relevance",
+};
+
 function ConversationExperience({ language, navigate }: { language: AppLanguage; navigate: ReturnType<typeof useNavigate> }) {
   const copy = getConversationCopy(language);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: "welcome", role: "assistant", text: copy.welcome },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
+  const [consented, setConsented] = useState(false);
   const [listening, setListening] = useState(false);
-  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [speechNotice, setSpeechNotice] = useState("");
-  const [stepIndex, setStepIndex] = useState(0);
-  const [profile, setProfile] = useState<Partial<Record<ProfileField, string>>>({});
-  const [selectedSchemes, setSelectedSchemes] = useState<string[]>([]);
-  const [completed, setCompleted] = useState(false);
+  const [stage, setStage] = useState<TurnResponse["stage"]>("language");
+  const [statusText, setStatusText] = useState("Connecting to SchemeSage…");
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [sessionId, setSessionId] = useState("");
+  const [details, setDetails] = useState<TurnResponse["details"] | null>(null);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const speechSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlsRef = useRef<string[]>([]);
+  const sessionIdRef = useRef("");
+  const initializationRef = useRef<Promise<{ sessionId: string; turn: TurnResponse }> | null>(null);
+  const retryRequestRef = useRef<{
+    message: ChatMessage;
+    request: (id: string) => Promise<Response>;
+  } | null>(null);
+  const mountedRef = useRef(false);
+  const chatContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const content = chatContentRef.current;
+    if (content) content.scrollTo({ top: content.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
+  useEffect(() => {
+    let active = true;
+    mountedRef.current = true;
+    if (!consented) {
+      return () => {
+        active = false;
+        mountedRef.current = false;
+      };
+    }
+    if (!initializationRef.current) {
+      initializationRef.current = (async () => {
+        const created = await fetch(`${API_BASE_URL}/api/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accepted: true, notice_version: PRIVACY_NOTICE_VERSION }),
+        });
+        if (!created.ok) throw new Error(`Could not create a conversation (${created.status}).`);
+        const createdSession = await created.json() as { session_id: string };
+        sessionIdRef.current = createdSession.session_id;
+        const response = await fetch(
+          `${API_BASE_URL}/api/sessions/${createdSession.session_id}/language`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ language: language.name }),
+          },
+        );
+        const turn = await readEventStream(response, (status) => {
+          if (mountedRef.current) setStatusText(status.replaceAll("_", " "));
+        });
+        return { sessionId: createdSession.session_id, turn };
+      })();
+    }
+
+    initializationRef.current.then(({ sessionId: id, turn }) => {
+      if (!active) return;
+      setSessionId(id);
+      updateFromTurn(turn);
+      setLoading(false);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      initializationRef.current = null;
+      if (sessionIdRef.current) {
+        const orphanedSession = sessionIdRef.current;
+        sessionIdRef.current = "";
+        void fetch(`${API_BASE_URL}/api/sessions/${orphanedSession}`, {
+          method: "DELETE",
+          keepalive: true,
+        }).catch(() => undefined);
+      }
+      setSpeechNotice(getRequestError(error));
+      setLoading(false);
+    });
+
+    return () => {
+      active = false;
+      mountedRef.current = false;
+      if (recorderRef.current?.state === "recording") {
+        recorderRef.current.onstop = null;
+        recorderRef.current.stop();
+      }
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (sessionIdRef.current) {
+        void fetch(`${API_BASE_URL}/api/sessions/${sessionIdRef.current}`, {
+          method: "DELETE",
+          keepalive: true,
+        }).catch((error: unknown) => console.error("Could not delete conversation session.", error));
+      }
+    };
+  }, [connectionAttempt, consented, language.name]);
+
   useEffect(() => () => {
-    recognitionRef.current?.stop();
+    audioUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     window.speechSynthesis?.cancel();
   }, []);
 
-  function speakMessage(message: ChatMessage) {
-    if (!speechSupported || message.role !== "assistant") {
-      setSpeechNotice(copy.speechUnavailable);
+  function updateFromTurn(turn: TurnResponse) {
+    setStage(turn.stage);
+    setDetails(turn.details);
+    const isSelection = turn.stage === "selection";
+    const kind: ChatMessage["kind"] = turn.stage === "complete" ? "checklist" : undefined;
+    const audioUrl = makeAudioUrl(turn.audio_base64);
+    if (audioUrl) audioUrlsRef.current.push(audioUrl);
+    const message: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      text: isSelection && turn.details.ranked_schemes
+        ? `${turn.reply}\n\n${turn.details.ranked_schemes}`
+        : turn.reply,
+      kind: kind === "checklist" ? kind : undefined,
+      audioUrl,
+    };
+    setMessages((previous) => [...previous, message]);
+    if (voiceEnabled) playAudio(message);
+  }
+
+  function speakTextFallback(message: ChatMessage) {
+    if (!("speechSynthesis" in window)) {
+      setSpeechNotice("Automatic speech is unavailable in this browser. The reply text is still available.");
       return;
     }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(message.text);
     utterance.lang = language.locale;
-    utterance.rate = 0.94;
-    utterance.onstart = () => setSpeakingId(message.id);
-    utterance.onend = () => setSpeakingId(null);
+    utterance.onstart = () => setSpeechNotice("");
     utterance.onerror = () => {
-      setSpeakingId(null);
-      setSpeechNotice(copy.speechUnavailable);
+      setSpeechNotice("Automatic speech could not start. The reply text is still available.");
     };
-    window.speechSynthesis.speak(utterance);
-    setSpeechNotice("");
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      setSpeechNotice("Automatic speech could not start. The reply text is still available.");
+    }
   }
 
-  useEffect(() => {
-    if (voiceEnabled && speechSupported) speakMessage(messages[0]);
-  }, []);
+  function playAudio(message: ChatMessage) {
+    if (!message.audioUrl) {
+      speakTextFallback(message);
+      return;
+    }
+    audioRef.current?.pause();
+    window.speechSynthesis?.cancel();
+    const audio = new Audio(message.audioUrl);
+    audioRef.current = audio;
+    audio.onerror = () => {
+      speakTextFallback(message);
+    };
+    void audio.play().catch(() => {
+      audio.onerror = null;
+      speakTextFallback(message);
+    });
+  }
 
-  function addAssistantMessage(text: string, kind?: ChatMessage["kind"]) {
-    const message = { id: crypto.randomUUID(), role: "assistant" as const, text, kind };
-    setMessages((previous) => [...previous, message]);
-    if (voiceEnabled) speakMessage(message);
+  async function sendTurn(
+    userMessage: ChatMessage,
+    request: (id: string) => Promise<Response>,
+  ) {
+    if (!sessionId || loading || stage === "complete") return;
+    if (!retryRequestRef.current || retryRequestRef.current.message.id !== userMessage.id) {
+      setMessages((previous) => [...previous, userMessage]);
+    }
+    setLoading(true);
+    setSpeechNotice("");
+    setStatusText(copy.thinking);
+    try {
+      const response = await request(sessionId);
+      const turn = await readEventStream(response, setStatusText);
+      if (turn.transcript) {
+        setMessages((previous) => previous.map((message) =>
+          message.id === userMessage.id ? { ...message, text: turn.transcript! } : message,
+        ));
+      }
+      updateFromTurn(turn);
+      retryRequestRef.current = null;
+    } catch (error) {
+      retryRequestRef.current = { message: userMessage, request };
+      setSpeechNotice(getRequestError(error));
+    } finally {
+      setLoading(false);
+      setStatusText("");
+    }
   }
 
   function handleUserAnswer(value: string) {
     const text = value.trim();
-    if (!text || loading || completed || stepIndex >= profileFields.length) return;
-
-    const field = profileFields[stepIndex];
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text };
-    const nextProfile = { ...profile, [field]: text };
-    setProfile(nextProfile);
-    setMessages((previous) => [...previous, userMessage]);
+    if (!text || loading || stage === "complete") return;
     setAnswer("");
-    setLoading(true);
-
-    window.setTimeout(() => {
-      const nextStep = stepIndex + 1;
-      setStepIndex(nextStep);
-      setLoading(false);
-      addAssistantMessage(nextStep < profileFields.length ? copy.questions[field] : copy.questions.income, nextStep === profileFields.length ? "schemes" : undefined);
-    }, 900);
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text };
+    void sendTurn(userMessage, (id) => fetch(`${API_BASE_URL}/api/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }));
   }
 
-  function startListening() {
-    const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!Recognition) {
-      setSpeechNotice(copy.voiceUnsupported);
+  async function uploadRecording(blob: Blob) {
+    if (!blob.size) {
+      setSpeechNotice("No audio was recorded. Try again or type your answer.");
       return;
     }
+    const extension = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text: "Voice message" };
+    await sendTurn(userMessage, (id) => {
+      const formData = new FormData();
+      formData.append("audio", blob, `recording.${extension}`);
+      return fetch(`${API_BASE_URL}/api/sessions/${id}/audio`, {
+        method: "POST",
+        body: formData,
+      });
+    });
+  }
 
-    recognitionRef.current?.stop();
-    const recognition = new Recognition();
-    recognition.lang = language.locale;
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = Array.from({ length: event.results.length }, (_, index) => event.results[index][0].transcript).join("");
-      setAnswer(transcript);
-    };
-    recognition.onerror = (event) => {
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setSpeechNotice("Audio recording is not supported in this browser. You can type your answer.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const preferredType = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = preferredType
+        ? new MediaRecorder(stream, { mimeType: preferredType })
+        : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        recorderRef.current = null;
+        setListening(false);
+        if (mountedRef.current) {
+          void uploadRecording(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+        }
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        recorderRef.current = null;
+        setListening(false);
+        setSpeechNotice("The recording failed. Please try again or type your answer.");
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      setListening(true);
+      setSpeechNotice("Listening… select the microphone again to send your recording.");
+    } catch (error) {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      recorderRef.current = null;
       setListening(false);
-      setSpeechNotice(event.error === "not-allowed" ? "Allow microphone access to answer by voice." : copy.voiceUnsupported);
-    };
-    recognition.onend = () => {
-      setListening(false);
-      recognitionRef.current = null;
-    };
-    recognitionRef.current = recognition;
-    setListening(true);
+      const name = error instanceof DOMException ? error.name : "";
+      setSpeechNotice(name === "NotAllowedError" || name === "SecurityError"
+        ? "Microphone permission was denied. Allow microphone access in your browser settings, or type your answer."
+        : name === "NotFoundError"
+          ? "No microphone was found. Connect one or type your answer."
+          : "Could not start microphone recording. Please try again or type your answer.");
+    }
+  }
+
+  function stopRecording() {
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+      setSpeechNotice("");
+    }
+  }
+
+  async function deleteConversation() {
+    if (!sessionId) {
+      navigate("/");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("The conversation could not be deleted. Please try again.");
+      sessionIdRef.current = "";
+      setSessionId("");
+      navigate("/");
+    } catch (error) {
+      setSpeechNotice(getRequestError(error));
+    }
+  }
+
+  function retryConnection() {
+    initializationRef.current = null;
     setSpeechNotice("");
-    recognition.start();
-  }
-
-  function stopListening() {
-    recognitionRef.current?.stop();
-    setListening(false);
-  }
-
-  function toggleScheme(id: string) {
-    setSelectedSchemes((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id]);
-  }
-
-  function buildChecklist() {
-    if (selectedSchemes.length === 0) return;
     setLoading(true);
-    window.setTimeout(() => {
-      setLoading(false);
-      setCompleted(true);
-      addAssistantMessage(copy.checklist, "checklist");
-    }, 1000);
+    setStatusText("Connecting to SchemeSage…");
+    setConnectionAttempt((attempt) => attempt + 1);
   }
 
-  const canType = !loading && !completed && stepIndex < profileFields.length;
+  function retryLastTurn() {
+    const retry = retryRequestRef.current;
+    if (retry) {
+      void sendTurn(retry.message, retry.request);
+    } else {
+      retryConnection();
+    }
+  }
+
+  function toggleVoice() {
+    setVoiceEnabled((enabled) => {
+      if (enabled) {
+        audioRef.current?.pause();
+        window.speechSynthesis?.cancel();
+      }
+      return !enabled;
+    });
+  }
+
+  const canType = !loading && stage !== "complete" && Boolean(sessionId);
+  const stageProgress = stage === "language" ? 0 : stage === "intake" ? 34 : stage === "selection" ? 68 : 100;
+  const currentStatus = loading ? (statusText || copy.thinking) : "Ready to help";
+  const profile = details?.profile ?? {};
 
   return (
     <main className="flow-page conversation-page">
@@ -457,104 +742,126 @@ function ConversationExperience({ language, navigate }: { language: AppLanguage;
       <div className="conversation-layout">
         <aside className="conversation-rail">
           <div className="rail-title">YOUR JOURNEY</div>
-          <div className="journey-step journey-step-active"><span>1</span><div><b>Tell us about you</b><small>Just a few details</small></div></div>
-          <div className={`journey-step ${stepIndex >= profileFields.length ? "journey-step-active" : ""}`}><span>2</span><div><b>Explore schemes</b><small>Review possible matches</small></div></div>
-          <div className={`journey-step ${completed ? "journey-step-active" : ""}`}><span>3</span><div><b>Your checklist</b><small>Plan what comes next</small></div></div>
+          <div className={`journey-step ${stage === "intake" ? "journey-step-active" : ""}`}><span>1</span><div><b>Tell us about you</b><small>Just a few details</small></div></div>
+          <div className={`journey-step ${stage === "selection" ? "journey-step-active" : ""}`}><span>2</span><div><b>Explore schemes</b><small>Review possible matches</small></div></div>
+          <div className={`journey-step ${stage === "complete" ? "journey-step-active" : ""}`}><span>3</span><div><b>Your checklist</b><small>Plan what comes next</small></div></div>
           <div className="rail-note"><ShieldCheck size={16} /><span>We never ask for Aadhaar, phone or bank details.</span></div>
         </aside>
 
         <section className="chat-panel" aria-label="SchemeSage conversation">
           <div className="chat-header">
             <div className="assistant-avatar"><Sparkles size={16} /></div>
-            <div className="chat-title"><strong>SchemeSage</strong><span><i /> Ready to help</span></div>
+            <div className="chat-title"><strong>SchemeSage</strong><span><i /> {currentStatus}</span></div>
             <div className="chat-header-actions">
               <span className="language-chip" lang={language.script}>{language.nativeName}</span>
               <button className="icon-button" type="button" aria-label="Change language" onClick={() => navigate("/language")}><Globe2 size={16} /></button>
+              {consented && <button className="icon-button" type="button" aria-label="End and delete conversation" title="End and delete conversation" onClick={() => void deleteConversation()}><Trash2 size={15} /></button>}
             </div>
           </div>
-          <div className="conversation-progress"><span style={{ width: `${Math.min((stepIndex / profileFields.length) * 100, 100)}%` }} /></div>
-          <div className="chat-content">
-            <div className="chat-date">A NEW CONVERSATION</div>
+          <div className="conversation-progress"><span style={{ width: `${stageProgress}%` }} /></div>
+          {!consented ? (
+            <div className="privacy-consent" role="region" aria-labelledby="consent-title">
+              <div className="privacy-consent-icon"><LockKeyhole size={20} /></div>
+              <h1 id="consent-title">Your information, your choice</h1>
+              <p>To suggest schemes, SchemeSage processes details you choose to share, which may include income, caste category, or disability relevance. Extra details are optional, and you can skip any question. Your conversation is stored in the configured database and expires after 24 hours of inactivity by default. You can end the session sooner using “End and delete”.</p>
+              <p>If you use voice, your recording is sent to Gnani for transcription. Conversation text is processed by the configured AI provider. Tavily receives scheme names only when checking public scheme information; your personal details are not sent to web search.</p>
+              <p>Share only what you are comfortable sharing. You may type instead of using the microphone, and you can stop at any time. This prototype is not an official government service or legal advice.</p>
+              <button className="button button-primary" type="button" onClick={() => {
+                setSpeechNotice("");
+                setLoading(true);
+                setStatusText("Connecting to SchemeSage…");
+                setConsented(true);
+              }}>
+                I understand and agree <ArrowRight size={15} />
+              </button>
+            </div>
+          ) : <div className="chat-content" aria-live="polite" ref={chatContentRef}>
+            {messages.length === 0 && <div className="chat-date">STARTING A PRIVATE CONVERSATION</div>}
             {messages.map((message) => (
               <div className={`message-row message-row-${message.role}`} key={message.id}>
                 {message.role === "assistant" && <div className="message-avatar"><Sparkles size={13} /></div>}
                 <div className={`message-bubble message-${message.role}`}>
                   <p lang={language.script}>{message.text}</p>
-                  {message.kind === "schemes" && (
-                    <div className="scheme-choices">
-                      <p className="choice-helper">{copy.matches}</p>
-                      {demoSchemes.map((scheme) => {
-                        const chosen = selectedSchemes.includes(scheme.id);
-                        return (
-                          <button type="button" className={`scheme-choice scheme-choice-${scheme.tone} ${chosen ? "scheme-choice-selected" : ""}`} key={scheme.id} onClick={() => toggleScheme(scheme.id)} aria-pressed={chosen}>
-                            <span className="choice-icon">{scheme.icon}</span>
-                            <span className="choice-copy"><strong>{scheme.name}</strong><small>{scheme.note}</small></span>
-                            <span className="choice-select">{chosen ? <Check size={14} /> : "+"}</span>
-                          </button>
-                        );
-                      })}
-                      <button className="button button-primary checklist-cta" type="button" disabled={!selectedSchemes.length || loading} onClick={buildChecklist}>
-                        {copy.checklistButton} <ArrowRight size={14} />
-                      </button>
-                    </div>
-                  )}
                   {message.kind === "checklist" && (
                     <div className="checklist-card">
-                      <div className="checklist-card-title"><FileCheck2 size={16} /><strong>Your sample checklist</strong></div>
-                      {demoDocuments.map((document) => <div className="checklist-row" key={document}><span><Check size={12} /></span>{document}<ChevronRight size={13} /></div>)}
-                      <small>Illustrative only · Confirm official requirements</small>
+                      <div className="checklist-card-title"><FileCheck2 size={16} /><strong>Your document checklist</strong></div>
+                      {details?.document_checklist.map((item) => (
+                        <div className="checklist-row" key={item.document}>
+                          <span><Check size={12} /></span>{item.document}
+                          {item.needed_for.length > 0 && <small>For: {item.needed_for.join(", ")}</small>}
+                        </div>
+                      ))}
+                      {details?.scheme_details.flatMap((scheme) =>
+                        (scheme.sources ?? []).map((source) => (
+                          <a
+                            className="checklist-source"
+                            href={source}
+                            key={`${scheme.scheme}-${source}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Official source for {scheme.scheme}
+                          </a>
+                        )),
+                      )}
+                      <small>Confirm current requirements with the official scheme source.</small>
                     </div>
-                  )}
-                  {message.role === "assistant" && (
-                    <button className={`message-audio ${speakingId === message.id ? "message-audio-playing" : ""}`} type="button" onClick={() => speakingId === message.id ? window.speechSynthesis.cancel() : speakMessage(message)} aria-label={speakingId === message.id ? "Stop spoken reply" : "Play spoken reply"}>
-                      {speakingId === message.id ? <Pause size={12} /> : <Volume2 size={12} />}
-                      {speakingId === message.id ? "Speaking" : "Listen"}
-                    </button>
                   )}
                 </div>
               </div>
             ))}
             {loading && (
-              <div className="message-row message-row-assistant">
+              <div className="message-row message-row-assistant" role="status" aria-live="polite">
                 <div className="message-avatar"><Sparkles size={13} /></div>
-                <div className="message-bubble message-assistant loading-bubble"><LoaderCircle size={15} className="spin" /><span>{stepIndex >= profileFields.length ? copy.thinking : copy.thinking}</span><span className="typing-dots"><i /><i /><i /></span></div>
+                <div className="message-bubble message-assistant loading-bubble"><LoaderCircle size={15} className="spin" aria-hidden="true" /><span>{statusText || copy.thinking}</span><span className="typing-dots" aria-hidden="true"><i /><i /><i /></span></div>
               </div>
             )}
-            <div ref={messagesEndRef} />
-          </div>
-          {speechNotice && <div className="speech-notice" role="status"><CircleHelp size={14} />{speechNotice}<button type="button" aria-label="Dismiss message" onClick={() => setSpeechNotice("")}><X size={13} /></button></div>}
-          {!speechSupported && voiceEnabled && <div className="speech-notice speech-notice-soft" role="status"><Headphones size={14} />{copy.speechUnavailable}<button type="button" aria-label="Dismiss message" onClick={() => setVoiceEnabled(false)}><X size={13} /></button></div>}
-          {canType ? (
+          </div>}
+          {consented && speechNotice && <div className="speech-notice" role="status"><CircleHelp size={14} />{speechNotice}{(!sessionId || retryRequestRef.current) && !loading && <button className="speech-retry" type="button" onClick={retryLastTurn}>Retry</button>}<button type="button" aria-label="Dismiss message" onClick={() => setSpeechNotice("")}><X size={13} /></button></div>}
+          {consented && canType ? (
             <form className="composer" onSubmit={(event) => { event.preventDefault(); handleUserAnswer(answer); }}>
-              <input value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={listening ? "Listening… speak now" : "Type your answer here…"} aria-label="Your answer" disabled={loading} />
-              <button className={`composer-mic ${listening ? "composer-mic-active" : ""}`} type="button" aria-label={listening ? "Stop voice input" : "Speak your answer"} onClick={listening ? stopListening : startListening}>
+              <input value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={listening ? "Listening… speak now" : "Type your answer here…"} aria-label="Your answer" disabled={loading || listening} />
+              <button className={`composer-mic ${listening ? "composer-mic-active" : ""}`} type="button" aria-label={listening ? "Stop and send recording" : "Record your answer"} onClick={listening ? stopRecording : startRecording} disabled={loading && !listening}>
                 {listening ? <MicOff size={18} /> : <Mic size={18} />}
               </button>
               <button className="composer-send" type="submit" disabled={!answer.trim() || loading} aria-label="Send answer"><Send size={17} /></button>
             </form>
-          ) : (
-            <div className="conversation-done"><CheckCircle2 size={16} /><span>{completed ? "Your sample checklist is ready." : "Choose one or more example schemes above to continue."}</span>{completed && <button type="button" onClick={() => navigate("/")}>Finish</button>}</div>
-          )}
-          <div className="chat-disclaimer"><LockKeyhole size={11} /> Demo experience — not connected to live eligibility or scheme data.</div>
+          ) : consented && stage === "complete" ? (
+            <div className="conversation-done"><CheckCircle2 size={16} /><span>Your checklist is ready.</span><button type="button" onClick={() => void deleteConversation()}>Finish & delete</button></div>
+          ) : null}
+          {consented && <div className="chat-disclaimer"><LockKeyhole size={11} /> Your conversation is stored securely and expires automatically.</div>}
         </section>
 
         <aside className="profile-panel">
           <div className="profile-header"><span>YOUR DETAILS</span><span className="profile-secure"><LockKeyhole size={12} /> PRIVATE</span></div>
-          {profileFields.map((field) => (
-            <div className={`profile-field ${profile[field] ? "profile-field-filled" : ""}`} key={field}>
-              <span>{copy.fields[field]}</span><strong>{profile[field] ?? "Not yet shared"}</strong>
-              {profile[field] && <Check size={13} />}
-            </div>
-          ))}
+          <div className="profile-details-scroll">
+            {profileFieldMap.map(({ key, field }) => {
+              const value = profile[key];
+              return (
+                <div className={`profile-field ${value !== null && value !== undefined ? "profile-field-filled" : ""}`} key={key}>
+                  <span>{copy.fields[field]}</span><strong>{value ?? "Not yet shared"}</strong>
+                  {value !== null && value !== undefined && <Check size={13} />}
+                </div>
+              );
+            })}
+            {Object.entries(optionalProfileLabels).map(([key, label]) => {
+              const value = profile[key];
+              return value === null || value === undefined ? null : (
+                <div className="profile-field profile-field-filled" key={key}>
+                  <span>{label}</span><strong>{value}</strong><Check size={13} />
+                </div>
+              );
+            })}
+          </div>
           <div className="profile-aside-note"><ShieldCheck size={14} /><span>Only share what you're comfortable sharing.</span></div>
-          <button className={`voice-toggle ${voiceEnabled ? "voice-toggle-on" : ""}`} type="button" onClick={() => setVoiceEnabled((enabled) => !enabled)}>
+          <button className={`voice-toggle ${voiceEnabled ? "voice-toggle-on" : ""}`} type="button" onClick={toggleVoice}>
             <span>{voiceEnabled ? <Volume2 size={15} /> : <MicOff size={15} />}</span>
-            <span><b>Spoken replies</b><small>{voiceEnabled ? "On in this browser" : "Turned off"}</small></span>
+            <span><b>Spoken replies</b><small>{voiceEnabled ? "Replies are spoken automatically" : "Audio playback off"}</small></span>
             <span className="toggle-track"><i /></span>
           </button>
         </aside>
       </div>
-      <p className="flow-footnote conversation-footnote">Your responses stay in this demo session. A real deployment needs a secure backend.</p>
+      <p className="flow-footnote conversation-footnote">No login required. Your session expires automatically; use “End and delete” to erase it sooner.</p>
     </main>
   );
 }

@@ -12,6 +12,7 @@ from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
 from agents.audio_utils import get_user_query, require_api_key, tell
+from agents.http_clients import create_retry_session
 
 
 load_dotenv()
@@ -33,7 +34,8 @@ rank all the schemes from best suited to least suited for me.
 For each scheme, do the following:
 1. Search the documents for that scheme's eligibility criteria.
 2. Check each criterion against my profile (age, occupation, district,
-   annual income, land, caste category).
+   annual income, land, caste category, household size, student course, and
+   disability relevance).
 3. Give a status: Eligible, Likely eligible, Need more info, or Not eligible.
 4. Quote the exact rule from the document that supports your status.
 
@@ -62,19 +64,29 @@ def get_llm(
     if not api_key:
         raise ValueError("Please set the NVIDIA_API_KEY environment variable.")
 
-    return ChatNVIDIA(
+    model = ChatNVIDIA(
         model=model_name,
         temperature=temperature,
         api_key=api_key,
         timeout=180,
         max_completion_tokens=1024,
     )
+    model._client.get_session_fn = create_retry_session
+    return model
 
 
 # 5. Shared data used by the tools
 ranked = {"text": ""}          # the ranked list, filled by select_schemes()
 selected_schemes = []          # the schemes the user chose
 confirmed = {"done": False}
+
+_turn_sessions = {}
+_turn_checkpointer = InMemorySaver()
+
+
+def configure_checkpointer(checkpointer) -> None:
+    global _turn_checkpointer
+    _turn_checkpointer = checkpointer
 
 
 @tool
@@ -173,6 +185,156 @@ def build_agent(language: str, ranked_schemes: str):
     )
 
 
+def start_turn_session(
+    session_id: str,
+    profile_data: dict,
+    language: str,
+    locale: str,
+    ranked_schemes: Optional[str] = None,
+    selected: Optional[list[str]] = None,
+    resume: bool = False,
+) -> dict:
+    """Rank schemes and create an isolated, checkpointed selection conversation."""
+    if session_id in _turn_sessions and not resume:
+        end_turn_session(session_id)
+
+    ranked_text = ranked_schemes or retrieval_agent(build_query(profile_data))
+    state = {"selected_schemes": list(selected or []), "confirmed": False}
+
+    @tool
+    def save_selected_schemes(schemes: list[str]) -> str:
+        """Save exact scheme names selected from the ranked list."""
+        not_found = [
+            name for name in schemes
+            if name.lower() not in ranked_text.lower()
+        ]
+        for name in schemes:
+            if name not in not_found and name not in state["selected_schemes"]:
+                state["selected_schemes"].append(name)
+        return (
+            f"Saved. Schemes selected so far: {state['selected_schemes']}"
+            + (f" Not saved because they were not in the ranked list: {not_found}." if not_found else "")
+        )
+
+    @tool
+    def remove_selected_schemes(schemes: list[str]) -> str:
+        """Remove schemes the user no longer wants to apply for."""
+        for name in schemes:
+            if name in state["selected_schemes"]:
+                state["selected_schemes"].remove(name)
+        return f"Removed. Schemes selected so far: {state['selected_schemes']}"
+
+    @tool
+    def confirm_selected_schemes() -> str:
+        """Confirm the selection only after the user confirms it."""
+        if not state["selected_schemes"]:
+            return "No scheme is saved yet. Ask the user which schemes they want."
+        state["confirmed"] = True
+        return "Schemes confirmed."
+
+    agent = create_agent(
+        model=get_llm(),
+        tools=[
+            save_selected_schemes,
+            remove_selected_schemes,
+            confirm_selected_schemes,
+        ],
+        system_prompt=f"""
+        You help people find government schemes in Andhra Pradesh. The user
+        speaks {language}; always reply in {language}. Use plain text without
+        markdown, and keep replies to at most three short sentences except for
+        the first message. Speak scheme names in {language}, but use exact
+        English names when calling tools.
+
+        Ranked schemes:
+        {ranked_text}
+
+        In your first message, list every Eligible and Likely eligible scheme,
+        then also list schemes marked Need more info with the exact missing
+        criteria. Do not treat unknown profile values as proof of ineligibility.
+        Only say there are no suitable schemes when the ranked evidence marks
+        every relevant scheme Not eligible. If the user asks about a category
+        (such as education or scholarships), identify matching scheme entries
+        from the ranked list and explain their status instead of claiming that
+        no schemes of that type exist. Include benefits when provided, then ask
+        which schemes the user wants. Ask one simple question at a time. Use
+        save_selected_schemes for chosen names and
+        remove_selected_schemes when the user changes their mind. Explain
+        when a chosen scheme is marked Not eligible, but save it if the user
+        insists. Once the user is done, read the choices back and ask for
+        confirmation. Call confirm_selected_schemes only after confirmation.
+        Never ask for Aadhaar, phone, bank details, passwords or OTPs.
+        """,
+        checkpointer=_turn_checkpointer,
+    )
+    _turn_sessions[session_id] = {
+        "agent": agent,
+        "state": state,
+        "ranked_schemes": ranked_text,
+        "profile": dict(profile_data),
+        "language": language,
+        "locale": locale,
+    }
+    if resume:
+        return {}
+    try:
+        return handle_turn(session_id, "Hello")
+    except Exception:
+        end_turn_session(session_id)
+        raise
+
+
+def has_turn_session(session_id: str) -> bool:
+    return session_id in _turn_sessions
+
+
+def resume_turn_session(
+    session_id: str,
+    profile_data: dict,
+    language: str,
+    locale: str,
+    ranked_schemes: str,
+    selected: list[str],
+) -> None:
+    if not has_turn_session(session_id):
+        start_turn_session(
+            session_id,
+            profile_data,
+            language,
+            locale,
+            ranked_schemes=ranked_schemes,
+            selected=selected,
+            resume=True,
+        )
+
+
+def handle_turn(session_id: str, text: str) -> dict:
+    """Process one scheme-selection message and return the updated selection."""
+    session = _turn_sessions.get(session_id)
+    if session is None:
+        raise KeyError(f"No scheme-selection session exists for {session_id}.")
+    response = session["agent"].invoke(
+        {"messages": [{"role": "user", "content": text}]},
+        {"configurable": {"thread_id": f"{session_id}:selection"}},
+    )
+    state = session["state"]
+    return {
+        "reply": response["messages"][-1].content,
+        "details": {
+            "ranked_schemes": session["ranked_schemes"],
+            "selected_schemes": list(state["selected_schemes"]),
+            "language": session["language"],
+            "locale": session["locale"],
+        },
+        "confirmed": state["confirmed"],
+    }
+
+
+def end_turn_session(session_id: str) -> None:
+    _turn_sessions.pop(session_id, None)
+    _turn_checkpointer.delete_thread(f"{session_id}:selection")
+
+
 languages = {
     "1": ("English", "en-IN"),
     "2": ("Telugu", "te-IN"),
@@ -216,74 +378,47 @@ def select_schemes(
         except FileNotFoundError:
             pass
 
-    # start fresh, in case this function is called more than once
-    selected_schemes.clear()
-    confirmed["done"] = False
-
     if not (language and locale):
         choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()
         language, locale = languages.get(choice, languages["1"])
 
     print("Comparing your profile with all the schemes, please wait...")
-    ranked["text"] = retrieval_agent(build_query(profile))
+    session_id = str(uuid.uuid4())
+    turn = start_turn_session(session_id, profile, language, locale)
+    try:
+        tell(turn["reply"], locale)
+        while not turn["confirmed"]:
+            query = get_user_query(locale)
+            if query is None:
+                continue
+            if query.lower() in ["exit", "bye"]:
+                return None
 
-    agent = build_agent(language, ranked["text"])
-    config = {"configurable": {"thread_id": "1"}}
+            print("user:", query)
+            turn = handle_turn(session_id, query)
+            tell(turn["reply"], locale)
 
-    def ask_agent(text: str) -> str:
-        response = agent.invoke(
-            {"messages": [{"role": "user", "content": text}]},
-            config,
-        )
-        return response["messages"][-1].content
+        details = turn["details"]
+        print("\nSelected schemes:", details["selected_schemes"])
+        os.makedirs(DATA_DIR, exist_ok=True)
 
-    # the agent speaks first and presents the top schemes
-    reply = ask_agent("Hello")
-    tell(reply, locale)
+        with open(SELECTED_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "profile": profile,
+                    "language": language,
+                    "locale": locale,
+                    "selected_schemes": details["selected_schemes"],
+                },
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
 
-    while not confirmed["done"]:
-        query = get_user_query(locale)
-
-        if query is None:
-            continue
-
-        if query.lower() in ["exit", "bye"]:
-            break
-
-        print("user:", query)
-
-        reply = ask_agent(query)
-        tell(reply, locale)
-
-    if not confirmed["done"]:
-        return None
-
-    print("\nSelected schemes:", selected_schemes)
-
-    # saved so the next agent can read it
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    with open(SELECTED_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "profile": profile,
-                "language": language,
-                "locale": locale,
-                "selected_schemes": selected_schemes,
-            },
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    print("Saved to:", SELECTED_FILE)
-
-    return {
-        "ranked_schemes": ranked["text"],
-        "selected_schemes": list(selected_schemes),
-        "language": language,
-        "locale": locale,
-    }
+        print("Saved to:", SELECTED_FILE)
+        return details
+    finally:
+        end_turn_session(session_id)
 
 
 if __name__ == "__main__":

@@ -14,3 +14,9 @@ sounddevice
 soundfile
 numpy
 tavily
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+python-multipart>=0.0.9,<1
+psycopg[binary,pool]>=3.2,<4
+langgraph-checkpoint-postgres>=2.0,<4
+imageio-ffmpeg>=0.5,<1

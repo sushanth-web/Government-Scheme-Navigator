@@ -1,5 +1,11 @@
 import os
+import logging
+import re
+import threading
+import time
 import uuid
+import hashlib
+import json
 
 from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA, NVIDIAEmbeddings
@@ -9,6 +15,8 @@ from langchain.tools import tool
 from langchain.agents import create_agent
 from langchain_chroma import Chroma
 from langgraph.checkpoint.memory import InMemorySaver
+from tavily import TavilyClient
+from agents.http_clients import create_retry_session
 
 
 load_dotenv()
@@ -19,6 +27,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 SCHEMES_DIR = os.path.join(DATA_DIR, "schemes")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
+INDEX_MANIFEST = os.path.join(CACHE_DIR, "schemes_manifest.json")
+logger = logging.getLogger(__name__)
+_web_cache: dict[tuple[str, ...], tuple[float, str]] = {}
+_web_cache_lock = threading.Lock()
 
 
 # 1. Initialize the LLM
@@ -31,19 +43,39 @@ def get_llm(
     if not api_key:
         raise ValueError("Please set the NVIDIA_API_KEY environment variable.")
 
-    return ChatNVIDIA(
+    model = ChatNVIDIA(
         model=model_name,
         temperature=temperature,
         api_key=api_key,
         timeout=180,
         max_completion_tokens=4096,  # was 1024, a ranked list of all schemes is long
     )
+    model._client.get_session_fn = create_retry_session
+    return model
 
 
 # 2. Initialize the embedding model
-embeddings = NVIDIAEmbeddings(
-    model="nvidia/nemotron-3-embed-1b"
-)
+class LazyNVIDIAEmbeddings:
+    def __init__(self) -> None:
+        self._client: NVIDIAEmbeddings | None = None
+
+    def _get_client(self) -> NVIDIAEmbeddings:
+        if self._client is None:
+            self._client = NVIDIAEmbeddings(
+                model="nvidia/nemotron-3-embed-1b",
+            )
+            self._client._client.timeout = 30
+            self._client._client.get_session_fn = create_retry_session
+        return self._client
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._get_client().embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._get_client().embed_query(text)
+
+
+embeddings = LazyNVIDIAEmbeddings()
 
 
 # 3. Initialize persistent ChromaDB
@@ -54,9 +86,8 @@ vector_store = Chroma(
 )
 
 
-# 4. Load, split and store the PDFs ONLY if the DB is empty
-#    (before, the PDFs were added again on every run, creating duplicates)
-if not vector_store.get(limit=1)["ids"]:
+def build_index() -> None:
+    """Rebuild the persistent vector index from the current scheme PDFs."""
     loader = PyPDFDirectoryLoader(SCHEMES_DIR)
     documents = loader.load()
 
@@ -74,11 +105,130 @@ if not vector_store.get(limit=1)["ids"]:
 
     print(f"Created {len(splitted_doc)} chunks")
 
-    vector_store.add_documents(
-        documents=splitted_doc,
+    existing_ids = vector_store.get(include=[])["ids"]
+    if existing_ids:
+        vector_store.delete(ids=existing_ids)
+    if splitted_doc:
+        vector_store.add_documents(documents=splitted_doc)
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(INDEX_MANIFEST, "w", encoding="utf-8") as manifest_file:
+        json.dump(_scheme_fingerprint(), manifest_file, indent=2, sort_keys=True)
+
+
+def ensure_indexed() -> None:
+    if not vector_store.get(limit=1)["ids"]:
+        raise RuntimeError(
+            f"No prebuilt scheme index found in {CACHE_DIR}. "
+            "Build it with `python -m agents.build_index`."
+        )
+    try:
+        with open(INDEX_MANIFEST, encoding="utf-8") as manifest_file:
+            indexed_fingerprint = json.load(manifest_file)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            "The scheme index has no valid freshness manifest. Rebuild it with "
+            "`python -m agents.build_index`."
+        ) from error
+
+    if indexed_fingerprint != _scheme_fingerprint():
+        raise RuntimeError(
+            "The scheme PDFs have changed since the Chroma index was built. "
+            "Rebuild it with `python -m agents.build_index`, then restart the API."
+        )
+
+
+def _scheme_fingerprint() -> dict[str, str]:
+    """Return content hashes for the PDF files currently available for indexing."""
+    if not os.path.isdir(SCHEMES_DIR):
+        raise FileNotFoundError(f"Scheme documents directory not found: {SCHEMES_DIR}")
+
+    fingerprints = {}
+    for filename in sorted(os.listdir(SCHEMES_DIR)):
+        if not filename.lower().endswith(".pdf"):
+            continue
+        path = os.path.join(SCHEMES_DIR, filename)
+        if not os.path.isfile(path):
+            continue
+        digest = hashlib.sha256()
+        with open(path, "rb") as pdf_file:
+            for chunk in iter(lambda: pdf_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        fingerprints[filename] = digest.hexdigest()
+    return fingerprints
+
+
+@tool
+def search_official_sources(scheme_names: list[str]) -> str:
+    """Search current official government sources for scheme names from the
+    local document catalogue. Supply scheme names only, never user details."""
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return "Official web search is not configured; use the indexed documents only."
+
+    indexed_documents = vector_store.get(include=["documents"])["documents"]
+    searchable_text = re.sub(
+        r"[^a-z0-9]", "", "\n".join(indexed_documents).lower()
     )
-else:
-    print(f"Using the existing vector DB (delete {CACHE_DIR} to index the PDFs again)")
+    names = []
+    for supplied_name in scheme_names:
+        candidate = supplied_name.strip()
+        normalized = re.sub(r"[^a-z0-9]", "", candidate.lower())
+        if (
+            len(normalized) >= 8
+            and len(candidate) <= 120
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9&()/' .-]{2,119}", candidate)
+            and normalized in searchable_text
+            and candidate not in names
+        ):
+            names.append(candidate)
+        if len(names) == 5:
+            break
+    if not names:
+        return "No recognized scheme names were supplied for official web search."
+
+    cache_key = tuple(sorted(names))
+    now = time.monotonic()
+    with _web_cache_lock:
+        cached = _web_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    query = (
+        "Official Andhra Pradesh government scheme eligibility, benefits, "
+        "application process, and current dates for: " + "; ".join(names)
+    )
+    result_text = ""
+    for attempt in range(2):
+        try:
+            results = TavilyClient(api_key=api_key, timeout=8).search(
+                query=query,
+                search_depth="basic",
+                max_results=8,
+                include_domains=["ap.gov.in", "gov.in", "nic.in", "myscheme.gov.in"],
+            ).get("results", [])
+            result_text = "\n\n".join(
+                f"{result.get('title', 'Official source')}\n"
+                f"URL: {result.get('url', '')}\n"
+                f"{str(result.get('content', ''))[:900]}"
+                for result in results
+            )
+            if not result_text:
+                result_text = "No results were returned from the selected official domains."
+            break
+        except Exception as error:
+            logger.warning("Official web search failed (%s).", type(error).__name__)
+            if attempt == 0:
+                time.sleep(0.25)
+            else:
+                result_text = (
+                    "Official web search is temporarily unavailable; use the "
+                    "indexed documents and identify that limitation."
+                )
+
+    with _web_cache_lock:
+        _web_cache[cache_key] = (time.monotonic() + 900, result_text)
+    return result_text
 
 
 # 5. Create the retrieval tools
@@ -87,6 +237,7 @@ def retrieve_context(query: str) -> str:
     """Search the indexed scheme PDFs for information relevant
     to the user's question."""
 
+    ensure_indexed()
     docs = vector_store.similarity_search(query, k=4)
 
     if not docs:
@@ -105,33 +256,35 @@ ELIGIBILITY_QUERY = (
     "eligibility criteria who can apply age income occupation "
     "caste category district land ownership benefits"
 )
-CHUNKS_PER_SCHEME = 4
 
 
 @tool
-def retrieve_all_schemes() -> str:
-    """Return the eligibility and benefit text of EVERY scheme document in the
-    vector DB, grouped by document. Use this when you must compare a user
-    profile with all the schemes."""
+def retrieve_all_schemes(query: str) -> str:
+    """Return profile-relevant evidence from EVERY scheme document, grouped
+    by document. Include the user's relevant profile and eligibility criteria
+    in the query; unknown details should not be inferred."""
 
+    ensure_indexed()
     data = vector_store.get(include=["metadatas"])
     sources = sorted(
         {m["source"] for m in data["metadatas"] if m and m.get("source")}
     )
+    query_embedding = embeddings.embed_query(
+        f"{ELIGIBILITY_QUERY}. Profile and matching criteria: {query}"
+    )
 
     parts = []
-
     for source in sources:
-        docs = vector_store.similarity_search(
-            ELIGIBILITY_QUERY,
-            k=CHUNKS_PER_SCHEME,
+        docs = vector_store.similarity_search_by_vector(
+            query_embedding,
+            k=3,
             filter={"source": source},
         )
-        docs.sort(key=lambda doc: doc.metadata.get("page", 0))
-
+        docs.sort(key=lambda document: document.metadata.get("page", 0))
         text = "\n".join(
-            f"[page {doc.metadata.get('page', 0) + 1}] {doc.page_content}"
-            for doc in docs
+            f"[page {document.metadata.get('page', 0) + 1}] "
+            f"{document.page_content}"
+            for document in docs
         )
 
         parts.append(f"=== DOCUMENT: {os.path.basename(source)} ===\n{text}")
@@ -139,11 +292,17 @@ def retrieve_all_schemes() -> str:
     return "\n\n".join(parts)
 
 
-# 6. Create the agent
-agent = create_agent(
-    model=get_llm(),
-    tools=[retrieve_context, retrieve_all_schemes],
-    system_prompt="""
+# 6. Create the agent only when document retrieval is actually needed.
+_agent = None
+
+
+def get_agent():
+    global _agent
+    if _agent is None:
+        _agent = create_agent(
+            model=get_llm(),
+            tools=[retrieve_context, retrieve_all_schemes, search_official_sources],
+            system_prompt="""
     You are a document question-answering agent.
 
     Rules:
@@ -158,22 +317,31 @@ agent = create_agent(
     5. Answer clearly and directly.
     6. When the user gives a profile and asks you to compare or rank
        schemes, call retrieve_all_schemes ONCE instead of retrieve_context.
-       It returns the text of every scheme document. Compare the profile
-       with EVERY document and list EVERY scheme, ranked from best suited
-       to least suited. Follow the answer format the user asks for.
+       Pass a concise search query containing all known relevant profile
+       values and criteria such as age, occupation, district, income, caste,
+       land, household size, student course, and disability status. Do not
+       treat unknown profile values as negative matches.
+       Then call search_official_sources ONCE with only the names of promising
+       schemes from those documents. Never send profile details, income, caste,
+       district, or other personal data to web search. Treat official documents
+       as the eligibility source and use web results to supplement or flag
+       current public information. Include official source URLs when relevant.
+       Compare the profile with EVERY document and list EVERY scheme, ranked
+       from best suited to least suited. Follow the answer format the user asks for.
     7. Ranking order: Eligible first, then Likely eligible, then
        Need more info, then Not eligible. Inside the same status, put
        the scheme that meets more criteria first.
     8. Name each scheme exactly as its official name is written in
        the document.
     """,
-
-    checkpointer=InMemorySaver()
-)
+            checkpointer=InMemorySaver(),
+        )
+    return _agent
 
 
 def retrieval_agent(query: str) -> str:
-    response = agent.invoke(
+    ensure_indexed()
+    response = get_agent().invoke(
         {
             "messages": [
                 {"role": "user", "content": query}
@@ -187,7 +355,5 @@ def retrieval_agent(query: str) -> str:
     )
 
     answer = response["messages"][-1].content
-
-    print("ai:", answer)
 
     return answer  # before, this function returned None

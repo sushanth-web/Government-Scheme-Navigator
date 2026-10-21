@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.venv
+__pycache__
+*.py[cod]
+input.wav
+data/cache
+data/profile.json
+data/selected_schemes.json
+data/document_checklist.json
+frontend/node_modules
+frontend/dist
+.git

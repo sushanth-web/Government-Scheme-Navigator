@@ -9,10 +9,44 @@ export interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   text: string;
-  kind?: "schemes" | "checklist";
+  kind?: "checklist";
+  audioUrl?: string;
 }
 
 export type ProfileField = "age" | "gender" | "occupation" | "district" | "income";
+
+export interface SchemeChecklistDetails {
+  scheme: string;
+  documents: Array<{ name: string; note?: string }>;
+  sources?: string[];
+  web_search_status?: string;
+  start_date?: string;
+  deadline?: string;
+  dates_source?: string;
+  how_to_apply?: string[];
+  other_requirements?: string[];
+  where_to_apply?: string;
+}
+
+export interface ConversationDetails {
+  profile: Record<string, string | number | null>;
+  ranked_schemes: string | null;
+  selected_schemes: string[];
+  scheme_details: SchemeChecklistDetails[];
+  document_checklist: Array<{ document: string; needed_for: string[] }>;
+  language: string | null;
+  locale: string | null;
+}
+
+export interface TurnResponse {
+  session_id: string;
+  stage: "language" | "intake" | "selection" | "complete";
+  reply: string;
+  details: ConversationDetails;
+  audio_base64?: string | null;
+  audio_error?: string | null;
+  transcript?: string;
+}
 
 export interface SpeechRecognitionAlternative {
   transcript: string;
