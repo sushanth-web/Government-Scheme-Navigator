@@ -4,13 +4,10 @@ import shutil
 import subprocess
 from typing import Optional
 
-import numpy as np
 import requests
-import sounddevice as sd
-import soundfile as sf
 from dotenv import load_dotenv
-from agents.http_clients import create_retry_session
 
+from agents.http_clients import create_retry_session
 
 load_dotenv()
 
@@ -19,6 +16,10 @@ TTS_URL = "https://api.vachana.ai/api/v1/tts/inference"
 SAMPLE_RATE = 16000
 DEFAULT_AUDIO_PATH = "input.wav"
 _HTTP_SESSION = create_retry_session()
+
+# sounddevice / soundfile / numpy are imported lazily inside the microphone and
+# speaker functions. A server (the API) has no audio hardware, and importing
+# sounddevice there can crash the whole app at start-up.
 
 
 def _get_api_key() -> str:
@@ -36,6 +37,10 @@ def require_api_key() -> None:
 
 
 def record_audio(path: str = DEFAULT_AUDIO_PATH) -> Optional[str]:
+    import numpy as np
+    import sounddevice as sd
+    import soundfile as sf
+
     chunks = []
 
     def callback(indata, _frames, _time, _status):
@@ -77,9 +82,12 @@ def convert_audio_to_wav(audio: bytes, filename: str) -> bytes:
     """Decode browser audio formats into mono 16 kHz PCM WAV using FFmpeg."""
     executable = shutil.which("ffmpeg")
     if executable is None:
-        import imageio_ffmpeg
+        try:
+            import imageio_ffmpeg
 
-        executable = imageio_ffmpeg.get_ffmpeg_exe()
+            executable = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as error:
+            raise RuntimeError("FFmpeg is required to process browser audio.") from error
     try:
         result = subprocess.run(
             [
@@ -90,6 +98,7 @@ def convert_audio_to_wav(audio: bytes, filename: str) -> bytes:
                 "error",
                 "-i",
                 "pipe:0",
+                "-vn",
                 "-f",
                 "wav",
                 "-acodec",
@@ -147,6 +156,9 @@ def synthesize_speech(text: str, locale: str) -> bytes:
 
 
 def speak(text: str, locale: str) -> None:
+    import sounddevice as sd
+    import soundfile as sf
+
     audio_data, sample_rate = sf.read(io.BytesIO(synthesize_speech(text, locale)))
     sd.play(audio_data, sample_rate)
     sd.wait()

@@ -8,7 +8,7 @@ import hashlib
 import json
 
 from dotenv import load_dotenv
-from langchain_nvidia_ai_endpoints import ChatNVIDIA, NVIDIAEmbeddings
+from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.tools import tool
@@ -16,7 +16,16 @@ from langchain.agents import create_agent
 from langchain_chroma import Chroma
 from langgraph.checkpoint.memory import InMemorySaver
 from tavily import TavilyClient
+
 from agents.http_clients import create_retry_session
+from agents.llm_utils import (
+    EMBEDDING_MODEL,
+    FAST_MODEL,
+    RANKING_MODEL,
+    build_chat_model,
+    clean_text,
+    strip_markdown,
+)
 
 
 load_dotenv()
@@ -33,25 +42,17 @@ _web_cache: dict[tuple[str, ...], tuple[float, str]] = {}
 _web_cache_lock = threading.Lock()
 
 
-# 1. Initialize the LLM
+# 1. Initialize the LLM (ranking every scheme needs the stronger model)
+_active_model = {"name": RANKING_MODEL}
+
+
 def get_llm(
-    model_name: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
-    temperature: float = 0.2,  # was 0.5, lower = more consistent eligibility checks
+    model_name: str = "",
+    temperature: float = 0.2,  # low = consistent eligibility checks
 ):
-    api_key = os.getenv("NVIDIA_API_KEY")
-
-    if not api_key:
-        raise ValueError("Please set the NVIDIA_API_KEY environment variable.")
-
-    model = ChatNVIDIA(
-        model=model_name,
-        temperature=temperature,
-        api_key=api_key,
-        timeout=180,
-        max_completion_tokens=4096,  # was 1024, a ranked list of all schemes is long
+    return build_chat_model(
+        model_name or _active_model["name"], temperature, timeout=180, max_tokens=8192
     )
-    model._client.get_session_fn = create_retry_session
-    return model
 
 
 # 2. Initialize the embedding model
@@ -61,9 +62,7 @@ class LazyNVIDIAEmbeddings:
 
     def _get_client(self) -> NVIDIAEmbeddings:
         if self._client is None:
-            self._client = NVIDIAEmbeddings(
-                model="nvidia/nemotron-3-embed-1b",
-            )
+            self._client = NVIDIAEmbeddings(model=EMBEDDING_MODEL, truncate="END")
             self._client._client.timeout = 30
             self._client._client.get_session_fn = create_retry_session
         return self._client
@@ -84,6 +83,43 @@ vector_store = Chroma(
     embedding_function=embeddings,
     persist_directory=CACHE_DIR,
 )
+
+_fingerprint_cache: dict = {"key": None, "value": None}
+_catalogue_cache: dict = {"key": None, "text": ""}
+
+
+def _scheme_files() -> list[tuple[str, str, int, int]]:
+    if not os.path.isdir(SCHEMES_DIR):
+        raise FileNotFoundError(f"Scheme documents directory not found: {SCHEMES_DIR}")
+    files = []
+    for filename in sorted(os.listdir(SCHEMES_DIR)):
+        path = os.path.join(SCHEMES_DIR, filename)
+        if filename.lower().endswith(".pdf") and os.path.isfile(path):
+            stat = os.stat(path)
+            files.append((filename, path, stat.st_size, stat.st_mtime_ns))
+    return files
+
+
+def _scheme_fingerprint() -> dict:
+    """Content hashes of the PDFs plus the embedding model used for the index.
+    Hashes are cached until a file's size or modified time changes."""
+    files = _scheme_files()
+    key = tuple((name, size, mtime) for name, _path, size, mtime in files)
+    if _fingerprint_cache["key"] == key:
+        return _fingerprint_cache["value"]
+
+    hashes = {}
+    for filename, path, _size, _mtime in files:
+        digest = hashlib.sha256()
+        with open(path, "rb") as pdf_file:
+            for chunk in iter(lambda: pdf_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        hashes[filename] = digest.hexdigest()
+
+    value = {"embedding_model": EMBEDDING_MODEL, "files": hashes}
+    _fingerprint_cache["key"] = key
+    _fingerprint_cache["value"] = value
+    return value
 
 
 def build_index() -> None:
@@ -114,6 +150,7 @@ def build_index() -> None:
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(INDEX_MANIFEST, "w", encoding="utf-8") as manifest_file:
         json.dump(_scheme_fingerprint(), manifest_file, indent=2, sort_keys=True)
+    _catalogue_cache["key"] = None
 
 
 def ensure_indexed() -> None:
@@ -133,29 +170,20 @@ def ensure_indexed() -> None:
 
     if indexed_fingerprint != _scheme_fingerprint():
         raise RuntimeError(
-            "The scheme PDFs have changed since the Chroma index was built. "
-            "Rebuild it with `python -m agents.build_index`, then restart the API."
+            "The scheme PDFs or the embedding model changed since the Chroma index "
+            "was built. Rebuild it with `python -m agents.build_index`, then "
+            "restart the API."
         )
 
 
-def _scheme_fingerprint() -> dict[str, str]:
-    """Return content hashes for the PDF files currently available for indexing."""
-    if not os.path.isdir(SCHEMES_DIR):
-        raise FileNotFoundError(f"Scheme documents directory not found: {SCHEMES_DIR}")
-
-    fingerprints = {}
-    for filename in sorted(os.listdir(SCHEMES_DIR)):
-        if not filename.lower().endswith(".pdf"):
-            continue
-        path = os.path.join(SCHEMES_DIR, filename)
-        if not os.path.isfile(path):
-            continue
-        digest = hashlib.sha256()
-        with open(path, "rb") as pdf_file:
-            for chunk in iter(lambda: pdf_file.read(1024 * 1024), b""):
-                digest.update(chunk)
-        fingerprints[filename] = digest.hexdigest()
-    return fingerprints
+def _catalogue_text() -> str:
+    """All indexed text with only letters and digits, cached per index state."""
+    key = _fingerprint_cache["key"]
+    if _catalogue_cache["key"] != key or key is None:
+        documents = vector_store.get(include=["documents"])["documents"]
+        _catalogue_cache["text"] = re.sub(r"[^a-z0-9]", "", "\n".join(documents).lower())
+        _catalogue_cache["key"] = key
+    return _catalogue_cache["text"]
 
 
 @tool
@@ -166,10 +194,7 @@ def search_official_sources(scheme_names: list[str]) -> str:
     if not api_key:
         return "Official web search is not configured; use the indexed documents only."
 
-    indexed_documents = vector_store.get(include=["documents"])["documents"]
-    searchable_text = re.sub(
-        r"[^a-z0-9]", "", "\n".join(indexed_documents).lower()
-    )
+    searchable_text = _catalogue_text()
     names = []
     for supplied_name in scheme_names:
         candidate = supplied_name.strip()
@@ -243,13 +268,11 @@ def retrieve_context(query: str) -> str:
     if not docs:
         return "No relevant information was found in the documents."
 
-    context = "\n\n".join(
+    return "\n\n".join(
         f"[{os.path.basename(doc.metadata.get('source', 'unknown'))}, "
         f"page {doc.metadata.get('page', 0) + 1}]\n{doc.page_content}"
         for doc in docs
     )
-
-    return context
 
 
 ELIGIBILITY_QUERY = (
@@ -294,15 +317,18 @@ def retrieve_all_schemes(query: str) -> str:
 
 # 6. Create the agent only when document retrieval is actually needed.
 _agent = None
+_agent_lock = threading.Lock()
+_checkpointer = InMemorySaver()
 
 
 def get_agent():
     global _agent
-    if _agent is None:
-        _agent = create_agent(
-            model=get_llm(),
-            tools=[retrieve_context, retrieve_all_schemes, search_official_sources],
-            system_prompt="""
+    with _agent_lock:
+        if _agent is None:
+            _agent = create_agent(
+                model=get_llm(),
+                tools=[retrieve_context, retrieve_all_schemes, search_official_sources],
+                system_prompt="""
     You are a document question-answering agent.
 
     Rules:
@@ -314,7 +340,8 @@ def get_agent():
     4. If the retrieved context does not contain the answer,
        say that the information could not be found in the
        uploaded documents.
-    5. Answer clearly and directly.
+    5. Answer clearly and directly. Use plain text only: no markdown, no
+       tables, no bold text, no symbols and no emojis.
     6. When the user gives a profile and asks you to compare or rank
        schemes, call retrieve_all_schemes ONCE instead of retrieve_context.
        Pass a concise search query containing all known relevant profile
@@ -334,26 +361,68 @@ def get_agent():
     8. Name each scheme exactly as its official name is written in
        the document.
     """,
-            checkpointer=InMemorySaver(),
-        )
-    return _agent
+                checkpointer=_checkpointer,
+            )
+        return _agent
+
+
+def _model_unavailable(error: Exception) -> bool:
+    text = str(error).lower()
+    return "404" in text or "not found" in text
+
+
+def _reset_agent() -> None:
+    global _agent
+    with _agent_lock:
+        _agent = None
 
 
 def retrieval_agent(query: str) -> str:
     ensure_indexed()
-    response = get_agent().invoke(
-        {
-            "messages": [
-                {"role": "user", "content": query}
-            ]
-        },
-        {
-            # new thread for every call, so old answers do not pile up
-            "configurable": {"thread_id": str(uuid.uuid4())},
-            "recursion_limit": 50,
-        }
+    for attempt in range(2):
+        thread_id = str(uuid.uuid4())  # new thread for every call
+        try:
+            response = get_agent().invoke(
+                {"messages": [{"role": "user", "content": query}]},
+                {
+                    "configurable": {"thread_id": thread_id},
+                    "recursion_limit": 50,
+                },
+            )
+            break
+        except Exception as error:
+            # The chosen ranking model is not served: fall back to the fast model.
+            if attempt == 0 and _active_model["name"] != FAST_MODEL and _model_unavailable(error):
+                logger.warning(
+                    "Ranking model %s unavailable, falling back to %s.",
+                    _active_model["name"],
+                    FAST_MODEL,
+                )
+                _active_model["name"] = FAST_MODEL
+                _reset_agent()
+                continue
+            raise
+        finally:
+            try:
+                _checkpointer.delete_thread(thread_id)  # no memory build-up
+            except Exception:
+                pass
+
+    return strip_markdown(clean_text(response["messages"][-1].content), keep_lines=True)
+
+
+def rank_schemes(prompt: str, evidence_query: str) -> str:
+    """Rank every scheme in ONE model call.
+
+    The evidence from every scheme PDF is fetched directly (no tool-calling
+    loop that can return an empty answer) and handed to the model together
+    with the instructions. Returns plain text, one block per scheme.
+    """
+    ensure_indexed()
+    evidence = retrieve_all_schemes.invoke({"query": evidence_query})
+    full_prompt = (
+        f"{prompt}\n\nEVIDENCE FROM THE SCHEME DOCUMENTS (your only source, "
+        f"one section per document):\n{evidence}"
     )
-
-    answer = response["messages"][-1].content
-
-    return answer  # before, this function returned None
+    reply = get_llm().invoke(full_prompt).content
+    return strip_markdown(clean_text(reply), keep_lines=True)

@@ -1,18 +1,18 @@
 import json
 import os
-
-from agents.retrieval_agent import retrieval_agent, DATA_DIR
-from agents.intake_agent import load_profile, load_language
+import re
+import uuid
 from typing import Optional
 
 from dotenv import load_dotenv
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agents.retrieval_agent import retrieval_agent, rank_schemes, DATA_DIR
+from agents.intake_agent import load_profile, load_language
 from agents.audio_utils import get_user_query, require_api_key, tell
-from agents.http_clients import create_retry_session
+from agents.llm_utils import FAST_MODEL, build_chat_model, speakable
 
 
 load_dotenv()
@@ -20,7 +20,7 @@ load_dotenv()
 SELECTED_FILE = os.path.join(DATA_DIR, "selected_schemes.json")
 
 
-# 2. The ranking prompt (it was a global before, now it is built from any profile)
+# The ranking prompt, built from any profile
 def build_query(profile: dict) -> str:
     profile_text = json.dumps(profile, indent=2)
 
@@ -39,14 +39,16 @@ For each scheme, do the following:
 3. Give a status: Eligible, Likely eligible, Need more info, or Not eligible.
 4. Quote the exact rule from the document that supports your status.
 
-Return the result as a ranked list, best match first:
-Rank. Scheme name
-- Status:
-- Why it matches: (criteria I meet)
-- What does not match or is unknown: (criteria I fail or that my profile
-  does not cover)
-- Benefit: (amount or support, if stated)
-- Source: (document name and page)
+Return PLAIN TEXT only. No markdown, no tables, no bold, no symbols, no
+introduction and no explanation of how you ranked. One block per scheme,
+best match first, with a blank line between blocks, in exactly this layout:
+
+Rank 1: Scheme name
+Status: Eligible, Likely eligible, Need more info, or Not eligible
+Matches: criteria I meet
+Unknown or fails: criteria I fail or that my profile does not cover
+Benefit: amount or support, if stated
+Source: document name and page
 
 Put "Not eligible" schemes at the end with the reason.
 Use only what the documents say. If a detail is missing, write
@@ -54,31 +56,46 @@ Use only what the documents say. If a detail is missing, write
 """
 
 
-# 3. LLM
+# The spoken selection conversation: fast model, short replies
 def get_llm(
-    model_name: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    model_name: str = FAST_MODEL,
     temperature: float = 0.3,
 ):
-    api_key = os.getenv("NVIDIA_API_KEY")
-
-    if not api_key:
-        raise ValueError("Please set the NVIDIA_API_KEY environment variable.")
-
-    model = ChatNVIDIA(
-        model=model_name,
-        temperature=temperature,
-        api_key=api_key,
-        timeout=180,
-        max_completion_tokens=1024,
-    )
-    model._client.get_session_fn = create_retry_session
-    return model
+    return build_chat_model(model_name, temperature, timeout=180, max_tokens=1500)
 
 
-# 5. Shared data used by the tools
-ranked = {"text": ""}          # the ranked list, filled by select_schemes()
-selected_schemes = []          # the schemes the user chose
-confirmed = {"done": False}
+_STATUS_WORDS = ("eligible", "likely eligible", "need more info", "not eligible")
+
+
+def _looks_ranked(text: str) -> bool:
+    """A usable ranking names at least one scheme with a status."""
+    lowered = (text or "").lower()
+    return len(lowered) > 80 and "status" in lowered and any(w in lowered for w in _STATUS_WORDS)
+
+
+def _rank(profile_data: dict) -> str:
+    """Rank all schemes: direct single-call ranking first, the tool agent as
+    a backup. Never returns an empty ranking, so the chat cannot wrongly
+    claim that no schemes exist."""
+    known = {k: v for k, v in profile_data.items() if v not in (None, "")}
+    evidence_query = ", ".join(f"{k}: {v}" for k, v in known.items())
+    prompt = build_query(profile_data)
+
+    for attempt in (rank_schemes, None):
+        try:
+            text = (
+                rank_schemes(prompt, evidence_query)
+                if attempt
+                else retrieval_agent(prompt)
+            )
+        except Exception:
+            if attempt is None:
+                raise
+            continue
+        if _looks_ranked(text):
+            return text
+    raise RuntimeError("Scheme ranking returned no usable result. Please retry.")
+
 
 _turn_sessions = {}
 _turn_checkpointer = InMemorySaver()
@@ -89,100 +106,8 @@ def configure_checkpointer(checkpointer) -> None:
     _turn_checkpointer = checkpointer
 
 
-@tool
-def update_scheme(schemes: list[str]) -> str:
-    """Save the schemes the user wants to apply to. Pass the exact scheme
-    names from the ranked list, in English. Only pass the schemes the
-    user just chose."""
-
-    not_found = []
-
-    for name in schemes:
-        if name.lower() not in ranked["text"].lower():
-            not_found.append(name)
-        elif name not in selected_schemes:
-            selected_schemes.append(name)
-
-    message = f"Saved. Schemes selected so far: {selected_schemes}"
-
-    if not_found:
-        message += f" NOT saved, not in the ranked list: {not_found}. Check the exact name."
-
-    return message
-
-
-@tool
-def remove_scheme(schemes: list[str]) -> str:
-    """Remove schemes the user does not want any more. Pass the exact
-    scheme names."""
-
-    for name in schemes:
-        if name in selected_schemes:
-            selected_schemes.remove(name)
-
-    return f"Removed. Schemes selected so far: {selected_schemes}"
-
-
-@tool
-def confirm_scheme() -> str:
-    """Call this only after the user has confirmed that the list
-    of selected schemes is correct."""
-
-    if not selected_schemes:
-        return "No scheme is saved yet. Ask the user which schemes they want."
-
-    confirmed["done"] = True
-    return "Schemes confirmed."
-
-
-# 6. The voice agent
-def build_agent(language: str, ranked_schemes: str):
-    return create_agent(
-        model=get_llm(),
-        tools=[update_scheme, remove_scheme, confirm_scheme],
-        system_prompt=f"""
-        You are a voice assistant that helps people find government
-        schemes in Andhra Pradesh.
-
-        The user speaks {language}. Always reply in {language}.
-
-        Your replies are spoken aloud, so:
-        - Use plain text only. No markdown, no bullet points, no emojis.
-        - Keep every reply short, at most three short sentences. The only
-          exception is your first message, which lists the eligible schemes.
-        - Speak scheme names and benefits in {language}. Translate the
-          scheme name into {language} script so the voice can read it.
-          But when you call a tool, always use the exact English scheme
-          name from the ranked list.
-
-        Here are all the schemes, already ranked from best to least suited
-        for this user:
-        {ranked_schemes}
-
-        Your job is to collect:
-        - the schemes the user wants to apply to, chosen from the ranked list above
-        - if the user picks a scheme that is Not eligible, tell the user it is not a good match and why. If the user insists on that scheme, save it anyway.
-
-        Rules:
-        1. In your first message, tell the user in {language} ALL the
-           schemes that are Eligible or Likely eligible, best first, each
-           with its benefit in a few words. Then say how many other
-           schemes need more details or are not a good match, and ask
-           which schemes the user wants to apply to.
-        2. Ask only ONE simple question at a time.
-        3. When the user picks schemes (by name or by position, like "the
-           first one"), call update_scheme with the exact English scheme
-           names from the ranked list.
-        4. If the user changes their mind, call remove_scheme.
-        5. If the user asks about a scheme, answer only from the ranked
-           list above.
-        6. Never ask for Aadhaar, phone number or bank details.
-        7. When the user says they are done choosing, read the chosen
-           schemes back in {language} and ask the user to confirm.
-        8. When the user confirms, call confirm_scheme.
-        """,
-        checkpointer=InMemorySaver(),
-    )
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
 def start_turn_session(
@@ -198,7 +123,8 @@ def start_turn_session(
     if session_id in _turn_sessions and not resume:
         end_turn_session(session_id)
 
-    ranked_text = ranked_schemes or retrieval_agent(build_query(profile_data))
+    ranked_text = ranked_schemes or _rank(profile_data)
+    ranked_norm = _norm(ranked_text)
     state = {"selected_schemes": list(selected or []), "confirmed": False}
 
     @tool
@@ -206,9 +132,10 @@ def start_turn_session(
         """Save exact scheme names selected from the ranked list."""
         not_found = [
             name for name in schemes
-            if name.lower() not in ranked_text.lower()
+            if not _norm(name) or _norm(name) not in ranked_norm
         ]
         for name in schemes:
+            name = name.strip()
             if name not in not_found and name not in state["selected_schemes"]:
                 state["selected_schemes"].append(name)
         return (
@@ -220,8 +147,9 @@ def start_turn_session(
     def remove_selected_schemes(schemes: list[str]) -> str:
         """Remove schemes the user no longer wants to apply for."""
         for name in schemes:
-            if name in state["selected_schemes"]:
-                state["selected_schemes"].remove(name)
+            for saved in list(state["selected_schemes"]):
+                if _norm(saved) == _norm(name):
+                    state["selected_schemes"].remove(saved)
         return f"Removed. Schemes selected so far: {state['selected_schemes']}"
 
     @tool
@@ -246,8 +174,18 @@ def start_turn_session(
         the first message. Speak scheme names in {language}, but use exact
         English names when calling tools.
 
-        Ranked schemes:
+        Here is the ranked scheme data. It is for your reference only. Never
+        print, quote, copy or summarize it as a list or table, and never add
+        any section after your reply. Reply only in short spoken sentences with
+        no bullet points, no tables, no bold text, no symbols and no emojis.
+
+        <ranked_schemes>
         {ranked_text}
+        </ranked_schemes>
+
+        The user's profile is already complete. Never ask again for age,
+        gender, occupation, district, income or any other profile detail:
+        {json.dumps({k: v for k, v in profile_data.items() if v not in (None, "")}, ensure_ascii=False)}
 
         In your first message, list every Eligible and Likely eligible scheme,
         then also list schemes marked Need more info with the exact missing
@@ -319,7 +257,7 @@ def handle_turn(session_id: str, text: str) -> dict:
     )
     state = session["state"]
     return {
-        "reply": response["messages"][-1].content,
+        "reply": speakable(response["messages"][-1].content),
         "details": {
             "ranked_schemes": session["ranked_schemes"],
             "selected_schemes": list(state["selected_schemes"]),
@@ -332,7 +270,10 @@ def handle_turn(session_id: str, text: str) -> dict:
 
 def end_turn_session(session_id: str) -> None:
     _turn_sessions.pop(session_id, None)
-    _turn_checkpointer.delete_thread(f"{session_id}:selection")
+    try:
+        _turn_checkpointer.delete_thread(f"{session_id}:selection")
+    except Exception:
+        pass
 
 
 languages = {
@@ -342,7 +283,7 @@ languages = {
 }
 
 
-# 7. The function other files import: rank the schemes, let the user choose
+# The function other files import: rank the schemes, let the user choose
 def select_schemes(
     profile: Optional[dict] = None,
     language: Optional[str] = None,
@@ -368,7 +309,6 @@ def select_schemes(
     # check the key BEFORE the slow ranking step
     require_api_key()
 
-    # take the details from the intake agent
     if profile is None:
         profile = load_profile()
 

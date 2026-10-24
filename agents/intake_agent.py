@@ -4,14 +4,12 @@ import uuid
 from typing import Optional
 
 from dotenv import load_dotenv
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain.tools import tool
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
-
 from agents.audio_utils import get_user_query, require_api_key, tell
-from agents.http_clients import create_retry_session
+from agents.llm_utils import FAST_MODEL, build_chat_model, speakable
 
 
 load_dotenv()
@@ -21,28 +19,15 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 PROFILE_FILE = os.path.join(DATA_DIR, "profile.json")
 
 
-# 2. Initialize the LLM
 def get_llm(
-    model_name: str = "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    model_name: str = FAST_MODEL,
     temperature: float = 0.3,
 ):
-    api_key = os.getenv("NVIDIA_API_KEY")
-
-    if not api_key:
-        raise ValueError("Please set the NVIDIA_API_KEY environment variable.")
-
-    model = ChatNVIDIA(
-        model=model_name,
-        temperature=temperature,
-        api_key=api_key,
-        timeout=90,
-        max_completion_tokens=1024,
-    )
-    model._client.get_session_fn = create_retry_session
-    return model
+    # Short spoken replies + tool calls: the fast model is the best fit.
+    return build_chat_model(model_name, temperature, timeout=90, max_tokens=1024)
 
 
-# 6. The user profile we want to fill (stored in English)
+# The user profile we want to fill (stored in English)
 REQUIRED_FIELDS = ["age", "gender", "occupation", "district", "annual_income"]
 
 profile = {
@@ -58,8 +43,6 @@ profile = {
     "disability_status": None,
 }
 
-confirmed = {"done": False}
-
 _turn_sessions = {}
 _turn_checkpointer = InMemorySaver()
 
@@ -67,117 +50,6 @@ _turn_checkpointer = InMemorySaver()
 def configure_checkpointer(checkpointer) -> None:
     global _turn_checkpointer
     _turn_checkpointer = checkpointer
-
-
-# 7. Tool: save what the user told us
-@tool
-def update_profile(
-    age: Optional[int] = None,
-    gender: Optional[str] = None,
-    occupation: Optional[str] = None,
-    district: Optional[str] = None,
-    annual_income: Optional[int] = None,
-    land_acres: Optional[float] = None,
-    caste_category: Optional[str] = None,
-    household_size: Optional[int] = None,
-    student_course: Optional[str] = None,
-    disability_status: Optional[str] = None,
-) -> str:
-    """Save profile details the user has told you. Only pass the fields
-    the user actually mentioned. Returns which required fields are
-    still missing."""
-
-    updates = {
-        "age": age,
-        "gender": gender,
-        "occupation": occupation,
-        "district": district,
-        "annual_income": annual_income,
-        "land_acres": land_acres,
-        "caste_category": caste_category,
-        "household_size": household_size,
-        "student_course": student_course,
-        "disability_status": disability_status,
-    }
-
-    for key, value in updates.items():
-        if value is not None:
-            profile[key] = value
-
-    missing = [f for f in REQUIRED_FIELDS if profile[f] is None]
-
-    if missing:
-        return f"Saved. Still missing: {missing}"
-
-    if not confirmed.get("optional_details_asked", False):
-        confirmed["optional_details_asked"] = True
-        return (
-            "Saved. Ask once whether the user wants to share optional details "
-            "(household size, student course, disability relevance, land, or "
-            "caste category), or skip them. Then summarize and ask for confirmation."
-        )
-    return "Saved. Summarize the profile and ask the user to confirm."
-
-
-# 8. Tool: mark the profile as confirmed
-@tool
-def confirm_profile() -> str:
-    """Call this only after the user has confirmed that the summary
-    of their profile is correct."""
-
-    confirmed["done"] = True
-    return "Profile confirmed."
-
-
-@tool
-def skip_optional_profile_details() -> str:
-    """Continue without collecting optional profile details."""
-    confirmed["optional_details_asked"] = True
-    return "Optional details skipped. Summarize the profile and ask for confirmation."
-
-
-# 9. Create the agent
-def build_agent(language: str):
-    return create_agent(
-        model=get_llm(),
-        tools=[update_profile, skip_optional_profile_details, confirm_profile],
-        system_prompt=f"""
-        You are a voice assistant that helps people find government
-        schemes in Andhra Pradesh.
-
-        The user speaks {language}. Always reply in {language}.
-
-        Your replies are spoken aloud, so:
-        - Use plain text only. No markdown, no bullet points, no emojis.
-        - Keep every reply short, at most two sentences.
-
-        Your job is to collect these details:
-        - age
-        - gender (for example male, female)
-        - occupation (for example farmer, student, laborer)
-        - district
-        - annual income in rupees
-        - land in acres (only if the user is a farmer)
-        - caste category: OC, BC, SC, ST, EWS or Minority (optional)
-        - household size, student course, and disability relevance (optional)
-
-        Rules:
-        1. Ask only ONE simple question at a time.
-        2. Whenever the user gives any detail, call update_profile
-           with only those details. Save values in English
-           (occupation as "farmer", numbers as digits).
-        3. Do not ask again for details you already have.
-        4. Leave uncertain optional values unknown. Use
-           skip_optional_profile_details only if the user declines all
-           optional details.
-        5. Never ask for Aadhaar, phone number or bank details.
-        6. After required details are collected, ask once whether the user
-           wants to share optional details or skip them.
-        7. Then read the details back in {language} and ask the user to confirm.
-        8. When the user confirms, call confirm_profile.
-        """,
-        checkpointer=InMemorySaver(),
-    )
 
 
 def start_turn_session(
@@ -191,9 +63,10 @@ def start_turn_session(
     if session_id in _turn_sessions and not resume:
         end_turn_session(session_id)
 
-    saved_profile = profile_data or {key: None for key in profile}
+    saved_profile = {key: None for key in profile}
+    saved_profile.update(profile_data or {})
     state = {
-        "profile": dict(saved_profile),
+        "profile": saved_profile,
         "confirmed": False,
         "optional_details_asked": optional_details_asked,
     }
@@ -225,7 +98,9 @@ def start_turn_session(
             "disability_status": disability_status,
         }
         for key, value in updates.items():
-            if value is not None:
+            if isinstance(value, str):
+                value = value.strip()
+            if value not in (None, ""):
                 state["profile"][key] = value
         missing = [key for key in REQUIRED_FIELDS if state["profile"][key] is None]
         if missing:
@@ -248,6 +123,9 @@ def start_turn_session(
     @tool
     def confirm_profile_details() -> str:
         """Mark the profile confirmed only after the user confirms it."""
+        missing = [key for key in REQUIRED_FIELDS if state["profile"][key] is None]
+        if missing:
+            return f"Cannot confirm yet. Still missing: {missing}"
         state["confirmed"] = True
         return "Profile confirmed."
 
@@ -269,6 +147,11 @@ def start_turn_session(
         disability relevance. Ask one optional follow-up after required
         details. Explain that "not sure", "prefer not to say", or "skip" is
         accepted and does not stop matching. Never infer an optional value.
+
+        Never use bullet points, lists, tables, bold text, symbols or emojis.
+        When you read the profile back, say it as one short natural sentence,
+        for example "You are 18, male, a student from Amalapuram, with an
+        annual income of 1,00,000 rupees. Is that correct?" in {language}.
 
         Ask one simple question at a time. When the user provides details, call
         save_profile_details with only those details, saving values in English.
@@ -315,7 +198,7 @@ def handle_turn(session_id: str, text: str) -> dict:
         {"configurable": {"thread_id": f"{session_id}:intake"}},
     )
     return {
-        "reply": response["messages"][-1].content,
+        "reply": speakable(response["messages"][-1].content),
         "details": dict(session["state"]["profile"]),
         "confirmed": session["state"]["confirmed"],
         "optional_details_asked": session["state"]["optional_details_asked"],
@@ -324,10 +207,13 @@ def handle_turn(session_id: str, text: str) -> dict:
 
 def end_turn_session(session_id: str) -> None:
     _turn_sessions.pop(session_id, None)
-    _turn_checkpointer.delete_thread(f"{session_id}:intake")
+    try:
+        _turn_checkpointer.delete_thread(f"{session_id}:intake")
+    except Exception:
+        pass
 
 
-# 10. Choose the language
+# Choose the language
 languages = {
     "1": ("English", "en-IN"),
     "2": ("Telugu", "te-IN"),
@@ -335,7 +221,7 @@ languages = {
 }
 
 
-# 11. The function other files import: run the voice intake, return the profile
+# The function other files import: run the voice intake, return the profile
 def get_profile(
     language: Optional[str] = None,
     locale: Optional[str] = None,
@@ -349,12 +235,6 @@ def get_profile(
     """
 
     require_api_key()
-
-    # start fresh, in case this function is called more than once
-    for key in profile:
-        profile[key] = None
-    confirmed["done"] = False
-    confirmed["optional_details_asked"] = False
 
     if not (language and locale):
         choice = input("Choose language (1. English  2. Telugu  3. Hindi): ").strip()

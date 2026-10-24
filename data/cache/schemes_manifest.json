@@ -1,11 +1,14 @@
 {
-  "Aadabidda Nidhi Scheme.pdf": "4a7af84194c48b0d2941905bfc43b4985fc8ab7ba514e74c7f20a2ed6f22efde",
-  "Annadata Sukhibhava Scheme.pdf": "bc15d12c1149b1c8a3ea511c008080cfff0ce4a8b954ee98bcfe93e102b04f98",
-  "Chandranna Bima Scheme.pdf": "70afa2bb42b0b523022ab101306788a47d793366e77b7ef58da4cb96bd357a77",
-  "Chandranna Pelli Kanuka Scheme.pdf": "0c83baa48bdcfa62b9e82ea869552ddc3cdfc5f366fa4c8568ce9a67c4d3bef1",
-  "Jagananna Vidya Deevena and Vasathi Deevena Scheme.pdf": "0a65a13061c657565d0b263e5a3a1200c7a30a934f03097726be01035c129239",
-  "Pedalandariki Illu Housing Scheme.pdf": "b28755a2c5d4b9e3b19132e93a7066288504818804531ebb6173abbfbfeb6c3e",
-  "Videshi Vidya Deevena Scheme.pdf": "b030b6a9f0c2d24a720d569735f59aec5e572b548aa7afdbb1825fa4f6f5b0f5",
-  "Women Empowerment Schemes Guide.pdf": "9059cb23bb7e1733883fa5ecab9e552e7e49f89afa5cf41c7d3688a34d6a5b88",
-  "YSR Free Crop Insurance Scheme.pdf": "91cdd2c0e22e332fcb827a77191053fe3884d09d0486c1150e9d90f9d658ea06"
+  "embedding_model": "nvidia/nemotron-3.5-embed-1b",
+  "files": {
+    "Aadabidda Nidhi Scheme.pdf": "4a7af84194c48b0d2941905bfc43b4985fc8ab7ba514e74c7f20a2ed6f22efde",
+    "Annadata Sukhibhava Scheme.pdf": "bc15d12c1149b1c8a3ea511c008080cfff0ce4a8b954ee98bcfe93e102b04f98",
+    "Chandranna Bima Scheme.pdf": "70afa2bb42b0b523022ab101306788a47d793366e77b7ef58da4cb96bd357a77",
+    "Chandranna Pelli Kanuka Scheme.pdf": "0c83baa48bdcfa62b9e82ea869552ddc3cdfc5f366fa4c8568ce9a67c4d3bef1",
+    "Jagananna Vidya Deevena and Vasathi Deevena Scheme.pdf": "0a65a13061c657565d0b263e5a3a1200c7a30a934f03097726be01035c129239",
+    "Pedalandariki Illu Housing Scheme.pdf": "b28755a2c5d4b9e3b19132e93a7066288504818804531ebb6173abbfbfeb6c3e",
+    "Videshi Vidya Deevena Scheme.pdf": "b030b6a9f0c2d24a720d569735f59aec5e572b548aa7afdbb1825fa4f6f5b0f5",
+    "Women Empowerment Schemes Guide.pdf": "9059cb23bb7e1733883fa5ecab9e552e7e49f89afa5cf41c7d3688a34d6a5b88",
+    "YSR Free Crop Insurance Scheme.pdf": "91cdd2c0e22e332fcb827a77191053fe3884d09d0486c1150e9d90f9d658ea06"
+  }
 }
