@@ -19,7 +19,7 @@ COPY api.py session_store.py state.py graph.py ./
 COPY agents ./agents
 COPY data/schemes ./data/schemes
 
-RUN --mount=type=secret,id=nvidia_api_key \
+RUN --mount=type=secret,id=nvidia_api_key,required=true \
     NVIDIA_API_KEY="$(cat /run/secrets/nvidia_api_key)" python -m agents.build_index \
     && python -c "import sqlite3; db=sqlite3.connect('/app/data/cache/chroma.sqlite3'); db.execute('PRAGMA wal_checkpoint(TRUNCATE)'); db.close()" \
     && chmod -R a-w /app/data/cache \
