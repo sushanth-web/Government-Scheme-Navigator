@@ -20,6 +20,9 @@ For the combined Vercel project configured in the root `vercel.json`, keep
 Set the backend's production secrets in Vercel and set `FRONTEND_ORIGINS` to
 the exact HTTPS Vercel site origin. The backend includes a prebuilt scheme
 index; do not configure a frontend `npm run build` command for the backend.
+The backend explicitly allows the Vercel frontend origins
+`https://government-scheme-navigator-fimx.vercel.app` and
+`https://government-scheme-navigator-s2pq.vercel.app`.
 
 If deploying the backend as its own Vercel project instead, set **Root
 Directory** to `backend`; `backend/pyproject.toml` configures its `api:app`

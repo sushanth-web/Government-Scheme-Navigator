@@ -29,6 +29,10 @@ from session_store import SessionStore
 logger = logging.getLogger(__name__)
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
 PRIVACY_NOTICE_VERSION = "2026-10-21"
+VERCEL_FRONTEND_ORIGINS = {
+    "https://government-scheme-navigator-s2pq.vercel.app",
+    "https://government-scheme-navigator-fimx.vercel.app",
+}
 SSE_RESPONSES = {
     200: {
         "description": "Server-sent events: status, reply, and error events.",
@@ -228,20 +232,21 @@ def _frontend_origins() -> list[str]:
     configured = os.getenv("FRONTEND_ORIGINS", "")
     if not configured and environment == "production":
         raise RuntimeError("FRONTEND_ORIGINS must be set to your HTTPS site origin in production.")
-    origins = [
+    origins = {
         origin.strip()
         for origin in (
             configured
             or "http://localhost:5173,http://127.0.0.1:5173,https://government-scheme-navigator-s2pq.vercel.app"
         ).split(",")
         if origin.strip()
-    ]
+    }
+    origins.update(VERCEL_FRONTEND_ORIGINS)
     if environment == "production":
         for origin in origins:
             parsed = urlsplit(origin)
             if parsed.scheme != "https" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or "*" in origin:
                 raise RuntimeError("Production FRONTEND_ORIGINS must contain exact HTTPS origins only.")
-    return origins
+    return sorted(origins)
 
 
 class RequestGuardMiddleware:
