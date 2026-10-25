@@ -1,2 +1,5 @@
 [tool.vercel]
 entrypoint = "api:app"
+
+[tool.vercel.scripts]
+build = "npm run build && python -m agents.build_index"
