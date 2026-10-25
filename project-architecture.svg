@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-labelledby="title description">
+  <title id="title">SchemeSage project architecture</title>
+  <desc id="description">Architecture showing the user and React frontend connecting through Vercel Services to the FastAPI backend, AI and speech providers, Chroma scheme documents, and PostgreSQL session storage.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4f8f6"/>
+      <stop offset="1" stop-color="#e8f0ee"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#115e59"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1 9 5 1 9" fill="none" stroke="#52756e" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: "Segoe UI", Arial, sans-serif; }
+      .heading { fill: #153b36; font-size: 34px; font-weight: 750; }
+      .subheading { fill: #607771; font-size: 17px; }
+      .region { fill: #eaf1ef; stroke: #cbd9d5; stroke-width: 1.5; }
+      .region-title { fill: #477068; font-size: 15px; font-weight: 750; letter-spacing: 1.5px; }
+      .card { fill: #fff; stroke: #d4e0dc; stroke-width: 1.5; }
+      .card-green { fill: #edf7f4; stroke: #9fc8bd; stroke-width: 1.5; }
+      .card-blue { fill: #f0f4fb; stroke: #b6c6df; stroke-width: 1.5; }
+      .card-gold { fill: #fff7e9; stroke: #e6cd9a; stroke-width: 1.5; }
+      .card-title { fill: #173e38; font-size: 19px; font-weight: 700; }
+      .copy { fill: #62766f; font-size: 14px; }
+      .small { fill: #71837d; font-size: 12px; }
+      .line { fill: none; stroke: #52756e; stroke-width: 2.2; marker-end: url(#arrow); }
+      .line-dash { fill: none; stroke: #81958e; stroke-width: 1.8; stroke-dasharray: 6 6; marker-end: url(#arrow); }
+      .label { fill: #4e7069; font-size: 12px; font-weight: 650; }
+      .tag { fill: #d8ece6; }
+      .tag-text { fill: #23665b; font-size: 11px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" rx="26" fill="url(#bg)"/>
+  <text x="56" y="62" class="heading">SchemeSage | Project architecture</text>
+  <text x="56" y="92" class="subheading">From a multilingual user conversation to grounded scheme matches and practical next steps</text>
+
+  <rect x="42" y="126" width="300" height="814" rx="20" class="region"/>
+  <text x="66" y="162" class="region-title">USER EXPERIENCE</text>
+  <rect x="66" y="192" width="252" height="100" rx="14" class="card"/>
+  <text x="88" y="228" class="card-title">User</text>
+  <text x="88" y="254" class="copy">Types or speaks in a chosen language</text>
+  <text x="88" y="276" class="small">Reviews and confirms their own choices</text>
+
+  <rect x="66" y="354" width="252" height="178" rx="14" class="card-green"/>
+  <text x="88" y="390" class="card-title">Web application</text>
+  <text x="88" y="419" class="copy">React · TypeScript · Vite</text>
+  <text x="88" y="445" class="copy">Language and consent screens</text>
+  <text x="88" y="471" class="copy">Conversation, matches, checklist</text>
+  <text x="88" y="497" class="copy">Audio capture and voice playback</text>
+  <rect x="88" y="510" width="126" height="18" rx="9" class="tag"/>
+  <text x="98" y="523" class="tag-text">Analytics enabled</text>
+
+  <rect x="66" y="598" width="252" height="118" rx="14" class="card"/>
+  <text x="88" y="634" class="card-title">Audio in the browser</text>
+  <text x="88" y="662" class="copy">Microphone records the answer</text>
+  <text x="88" y="686" class="copy">Upload sent to the backend API</text>
+
+  <rect x="66" y="778" width="252" height="110" rx="14" class="card"/>
+  <text x="88" y="814" class="card-title">Response to the user</text>
+  <text x="88" y="842" class="copy">Transcript and streamed reply</text>
+  <text x="88" y="866" class="copy">Optional generated spoken audio</text>
+
+  <rect x="372" y="126" width="236" height="814" rx="20" class="region"/>
+  <text x="396" y="162" class="region-title">DEPLOYMENT</text>
+  <rect x="396" y="302" width="188" height="188" rx="16" fill="url(#brand)"/>
+  <text x="490" y="345" text-anchor="middle" fill="#fff" font-size="21" font-weight="750">Vercel</text>
+  <text x="490" y="378" text-anchor="middle" fill="#d7f1eb" font-size="14">Services</text>
+  <path d="M422 400h136" stroke="#74c6b5" stroke-width="1"/>
+  <text x="490" y="428" text-anchor="middle" fill="#eaf8f5" font-size="13">/api/* → FastAPI</text>
+  <text x="490" y="455" text-anchor="middle" fill="#eaf8f5" font-size="13">Other paths → frontend</text>
+  <text x="490" y="476" text-anchor="middle" fill="#c0e5dc" font-size="11">Same deployment and domain</text>
+  <rect x="396" y="574" width="188" height="96" rx="14" class="card"/>
+  <text x="416" y="610" class="card-title" font-size="17">HTTPS requests</text>
+  <text x="416" y="638" class="copy">JSON, audio, SSE stream</text>
+  <text x="416" y="658" class="small">SSE = streamed events</text>
+
+  <rect x="638" y="126" width="490" height="814" rx="20" class="region"/>
+  <text x="662" y="162" class="region-title">PYTHON BACKEND</text>
+  <rect x="662" y="190" width="442" height="100" rx="14" class="card-blue"/>
+  <text x="684" y="228" class="card-title">FastAPI application</text>
+  <text x="684" y="257" class="copy">Consent · session API · audio/text endpoints · response streaming</text>
+
+  <rect x="662" y="330" width="442" height="112" rx="14" class="card"/>
+  <text x="684" y="368" class="card-title">1. Profile intake agent</text>
+  <text x="684" y="397" class="copy">Asks one question at a time and confirms profile details</text>
+  <text x="684" y="421" class="small">Optional details can be skipped by the user</text>
+
+  <rect x="662" y="466" width="442" height="140" rx="14" class="card"/>
+  <text x="684" y="504" class="card-title">2. Retrieval and scheme matching</text>
+  <text x="684" y="533" class="copy">Searches indexed scheme evidence and compares eligibility</text>
+  <text x="684" y="557" class="copy">Ranks possible matches; user chooses which to explore</text>
+  <text x="684" y="585" class="small">NVIDIA Nemotron chat and embedding APIs</text>
+
+  <rect x="662" y="630" width="442" height="116" rx="14" class="card"/>
+  <text x="684" y="668" class="card-title">3. Checklist agent</text>
+  <text x="684" y="697" class="copy">Builds scheme details and a combined document checklist</text>
+  <text x="684" y="723" class="small">Can supplement with official-domain web search</text>
+
+  <rect x="662" y="778" width="442" height="110" rx="14" class="card-green"/>
+  <text x="684" y="816" class="card-title">Session and agent state</text>
+  <text x="684" y="845" class="copy">PostgreSQL persistence · LangGraph checkpoints</text>
+  <text x="684" y="869" class="small">Local development can use in-memory sessions</text>
+
+  <rect x="1158" y="126" width="400" height="814" rx="20" class="region"/>
+  <text x="1182" y="162" class="region-title">AI, SPEECH &amp; DATA SERVICES</text>
+  <rect x="1182" y="192" width="352" height="128" rx="14" class="card-blue"/>
+  <text x="1204" y="230" class="card-title">NVIDIA AI APIs</text>
+  <text x="1204" y="259" class="copy">Nemotron chat / reasoning</text>
+  <text x="1204" y="284" class="copy">Nemotron multilingual embeddings</text>
+  <text x="1204" y="306" class="small">Conversation, matching, extraction</text>
+
+  <rect x="1182" y="354" width="352" height="144" rx="14" class="card-gold"/>
+  <text x="1204" y="392" class="card-title">Gnani Vachana</text>
+  <text x="1204" y="420" class="copy">Speech-to-text transcription</text>
+  <text x="1204" y="448" class="card-title">Gnani Timbre v3</text>
+  <text x="1204" y="476" class="copy">Text-to-speech · Shivani voice</text>
+
+  <rect x="1182" y="532" width="352" height="104" rx="14" class="card"/>
+  <text x="1204" y="570" class="card-title">Tavily</text>
+  <text x="1204" y="599" class="copy">Searches selected official domains</text>
+  <text x="1204" y="621" class="small">For current scheme information</text>
+
+  <rect x="1182" y="670" width="352" height="104" rx="14" class="card-green"/>
+  <text x="1204" y="708" class="card-title">Scheme knowledge</text>
+  <text x="1204" y="737" class="copy">Scheme PDFs → ChromaDB vector index</text>
+  <text x="1204" y="759" class="small">Bundled prebuilt retrieval index</text>
+
+  <rect x="1182" y="808" width="352" height="80" rx="14" class="card"/>
+  <text x="1204" y="843" class="card-title">PostgreSQL / Neon</text>
+  <text x="1204" y="870" class="copy">Persistent conversation sessions</text>
+
+  <path d="M318 240H384" class="line"/>
+  <text x="328" y="226" class="label">uses</text>
+  <path d="M318 430H350V396H396" class="line"/>
+  <text x="328" y="416" class="label">website</text>
+  <path d="M584 350H632V240H662" class="line"/>
+  <text x="594" y="335" class="label">/api</text>
+  <path d="M318 657H626V380H662" class="line-dash"/>
+  <text x="400" y="645" class="label">audio upload</text>
+  <path d="M662 870H620V850H318" class="line-dash"/>
+  <text x="434" y="838" class="label">streamed text + audio</text>
+
+  <path d="M1104 520H1140V256H1182" class="line"/>
+  <text x="1110" y="506" class="label">model calls</text>
+  <path d="M1104 380H1142V420H1182" class="line"/>
+  <text x="1110" y="365" class="label">audio</text>
+  <path d="M1104 690H1142V450H1182" class="line"/>
+  <text x="1110" y="675" class="label">voice</text>
+  <path d="M1104 550H1134V584H1182" class="line-dash"/>
+  <path d="M1104 550H1124V722H1182" class="line"/>
+  <path d="M1104 834H1182" class="line"/>
+
+  <text x="56" y="970" class="small">Solid arrows show primary requests or data access. Dashed arrows show supporting input or lookup paths.</text>
+</svg>
