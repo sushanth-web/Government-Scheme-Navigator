@@ -37,23 +37,23 @@ expiry is reached.
 
 The conversation UI uses the FastAPI backend and Python LangGraph agents.
 
-1. If the root `.env` does not exist, copy `.env.example` to `.env`; otherwise
-   edit the existing `.env` without overwriting it.
+1. If `backend/.env` does not exist, copy `backend/.env.example` to
+   `backend/.env`; otherwise edit the existing file without overwriting it.
 2. Set `DATABASE_URL` to the Neon **direct** connection string (include
    `sslmode=require`), and set `NVIDIA_API_KEY`, `GNANI_API_KEY`, and
    `TAVILY_API_KEY` in that local `.env` file. Do not put server keys in
    frontend variables or paste them into chat.
-3. Install the Python packages from the repository root. Audio conversion
+3. Install the Python packages from `backend/`. Audio conversion
    uses a system FFmpeg when available and the `imageio-ffmpeg` package
    otherwise; the container image installs FFmpeg.
-4. From the repository root, start the backend:
+4. Start the backend from `backend/`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 uvicorn api:app --reload
 ```
 
-5. From `frontend`, run `npm install` once and `npm run dev`. Vite proxies
+5. From `frontend/`, run `npm install` once and `npm run dev`. Vite proxies
    `/api` to `http://127.0.0.1:8000`.
 
 The API provides `POST /api/sessions`, `PUT /api/sessions/{id}/language`,
@@ -78,11 +78,11 @@ Postgres. Scheme results are not an official eligibility determination.
 ### Updating scheme PDFs
 
 The backend does not rebuild Chroma automatically when it starts. After adding,
-replacing, or deleting PDFs in `data/schemes`, run this from the repository root
+replacing, or deleting PDFs in `backend/data/schemes`, run this from `backend/`
 before restarting the API:
 
 ```powershell
-.\.venv\Scripts\python.exe -m agents.build_index
+python -m agents.build_index
 ```
 
 This rebuilds the local index from the current PDF set and removes vectors from
@@ -103,8 +103,9 @@ than inventing requirements. Confirm each provider's data-processing and
 retention terms before collecting real personal data.
 
 The Docker image installs FFmpeg and builds the Chroma index from
-`data/schemes` during image construction. The indexed directory is shipped
-without write permissions and runtime code only searches it. Build with
+`data/schemes` during image construction. Run the Docker commands below from
+the `backend/` directory. The indexed directory is shipped without write
+permissions and runtime code only searches it. Build with
 Docker BuildKit and provide `NVIDIA_API_KEY` as a build secret (never a build
 argument); from PowerShell, load the key into the current process environment
 from your local `.env`, then run:
@@ -140,7 +141,8 @@ endpoint reports `storage: "postgres"` when Neon is active.
 - The expiry sweeper runs for the lifetime of the API process. Configure your
   host for at least one minimum replica where possible; free hosting may still
   suspend idle apps and cause cold starts.
-- Load-test health and session storage with Locust (this avoids paid inference):
+- From `backend/`, load-test health and session storage with Locust (this avoids
+  paid inference):
 
 ```powershell
 python -m pip install -r requirements-load.txt
