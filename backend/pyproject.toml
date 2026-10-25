@@ -1,5 +1,4 @@
 [project]
-[project]
 # Keep dependencies in sync with requirements.txt for local installs.
 name = "government-scheme-navigator-backend"
 version = "0.1.0"
