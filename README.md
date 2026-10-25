@@ -14,13 +14,16 @@ environment variables to the public HTTPS URL of the deployed backend API
 (without a trailing slash). This value is public; do not put provider or
 database secrets in frontend environment variables.
 
-The backend is a separate FastAPI service. To deploy it as a second Vercel
-project, set its **Root Directory** to `backend`; `backend/pyproject.toml`
-configures Vercel's FastAPI entrypoint. Set its production secrets and set
-`FRONTEND_ORIGINS` to the exact HTTPS Vercel site origin. Verify that the
-backend's dependencies and scheme-document/index assets are included in the
-deployment. The backend includes a prebuilt scheme index; do not configure a
-frontend `npm run build` command for this project.
+For the combined Vercel project configured in the root `vercel.json`, keep
+**Root Directory** set to `./`. The root `pyproject.toml` points Vercel to
+`backend.api:app`, while `vercel.json` separately configures the frontend.
+Set the backend's production secrets in Vercel and set `FRONTEND_ORIGINS` to
+the exact HTTPS Vercel site origin. The backend includes a prebuilt scheme
+index; do not configure a frontend `npm run build` command for the backend.
+
+If deploying the backend as its own Vercel project instead, set **Root
+Directory** to `backend`; `backend/pyproject.toml` configures its `api:app`
+entrypoint.
 
 ## Run locally
 
