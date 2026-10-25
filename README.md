@@ -20,11 +20,11 @@ select the **Services** framework preset. The root `vercel.json` builds
 `/api/*` to FastAPI and all other paths to the frontend. The frontend uses
 same-origin `/api` requests, so no `VITE_API_BASE_URL` is needed for this setup.
 Set the backend's production secrets in Vercel and set `FRONTEND_ORIGINS` to
-the exact HTTPS Vercel site origin when the frontend and backend use different
-origins. The backend includes a prebuilt scheme index; do not configure a
-frontend `npm run build` command for the backend. The Vercel backend manifest
-contains only runtime dependencies; PDF indexing dependencies remain in
-`backend/requirements.txt` for local index rebuilds.
+the exact HTTPS Vercel site origin when `APP_ENV=production` (the backend
+requires this setting). The backend includes a prebuilt scheme index; do not
+configure a frontend `npm run build` command for the backend. The Vercel
+backend manifest contains only runtime dependencies; PDF indexing dependencies
+remain in `backend/requirements.txt` for local index rebuilds.
 
 If deploying the backend as its own Vercel project instead, set **Root
 Directory** to `backend`; `backend/pyproject.toml` configures its `api:app`
