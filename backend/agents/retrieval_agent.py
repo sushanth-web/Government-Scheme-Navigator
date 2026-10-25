@@ -1,6 +1,8 @@
 import os
 import logging
 import re
+import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -38,6 +40,18 @@ INDEX_MANIFEST = os.path.join(CACHE_DIR, "schemes_manifest.json")
 logger = logging.getLogger(__name__)
 _web_cache: dict[tuple[str, ...], tuple[float, str]] = {}
 _web_cache_lock = threading.Lock()
+
+
+def _runtime_cache_dir() -> str:
+    if os.getenv("VERCEL") != "1":
+        return CACHE_DIR
+
+    if not os.path.isdir(CACHE_DIR):
+        raise FileNotFoundError(f"Scheme index directory not found: {CACHE_DIR}")
+
+    runtime_cache = tempfile.mkdtemp(prefix="schemesage-chroma-")
+    shutil.copytree(CACHE_DIR, runtime_cache, dirs_exist_ok=True)
+    return runtime_cache
 
 
 # 1. Initialize the LLM (ranking every scheme needs the stronger model)
@@ -79,7 +93,7 @@ embeddings = LazyNVIDIAEmbeddings()
 vector_store = Chroma(
     collection_name="chroma_collection",
     embedding_function=embeddings,
-    persist_directory=CACHE_DIR,
+    persist_directory=_runtime_cache_dir(),
 )
 
 _fingerprint_cache: dict = {"key": None, "value": None}

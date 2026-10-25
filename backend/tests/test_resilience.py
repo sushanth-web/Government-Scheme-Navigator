@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -14,6 +15,27 @@ from agents.http_clients import create_retry_session
 
 
 class ProviderFailureTests(unittest.TestCase):
+    def test_vercel_chroma_cache_is_copied_to_writable_runtime_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = os.path.join(directory, "source")
+            os.makedirs(source)
+            source_file = os.path.join(source, "chroma.sqlite3")
+            with open(source_file, "wb") as file:
+                file.write(b"prebuilt index")
+
+            with (
+                patch.dict(os.environ, {"VERCEL": "1"}),
+                patch.object(retrieval_agent, "CACHE_DIR", source),
+            ):
+                runtime_cache = retrieval_agent._runtime_cache_dir()
+
+            try:
+                self.assertNotEqual(runtime_cache, source)
+                with open(os.path.join(runtime_cache, "chroma.sqlite3"), "rb") as file:
+                    self.assertEqual(file.read(), b"prebuilt index")
+            finally:
+                shutil.rmtree(runtime_cache)
+
     def test_nvidia_chat_transport_uses_supported_client_options(self):
         client = SimpleNamespace(_client=SimpleNamespace())
         with (
