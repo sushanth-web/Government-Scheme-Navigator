@@ -14,17 +14,17 @@ environment variables to the public HTTPS URL of the deployed backend API
 (without a trailing slash). This value is public; do not put provider or
 database secrets in frontend environment variables.
 
-For the combined Vercel project configured in the root `vercel.json`, keep
-**Root Directory** set to `./`. The root `pyproject.toml` points Vercel to
-`backend.api:app`, while `vercel.json` separately configures the frontend.
+For a single combined Vercel project, keep **Root Directory** set to `./` and
+select the **Services** framework preset. The root `vercel.json` builds
+`backend/` as the FastAPI service and `frontend/` as the Vite service. It routes
+`/api/*` to FastAPI and all other paths to the frontend. The frontend uses
+same-origin `/api` requests, so no `VITE_API_BASE_URL` is needed for this setup.
 Set the backend's production secrets in Vercel and set `FRONTEND_ORIGINS` to
-the exact HTTPS Vercel site origin. The backend includes a prebuilt scheme
-index; do not configure a frontend `npm run build` command for the backend.
-The backend explicitly allows the Vercel frontend origins
-`https://government-scheme-navigator-fimx.vercel.app` and
-`https://government-scheme-navigator-s2pq.vercel.app`.
-The Vercel backend manifest contains only runtime dependencies; PDF indexing
-dependencies remain in `backend/requirements.txt` for local index rebuilds.
+the exact HTTPS Vercel site origin when the frontend and backend use different
+origins. The backend includes a prebuilt scheme index; do not configure a
+frontend `npm run build` command for the backend. The Vercel backend manifest
+contains only runtime dependencies; PDF indexing dependencies remain in
+`backend/requirements.txt` for local index rebuilds.
 
 If deploying the backend as its own Vercel project instead, set **Root
 Directory** to `backend`; `backend/pyproject.toml` configures its `api:app`
