@@ -33,7 +33,8 @@ button { color: inherit; }
 .site-header, .site-footer { width: min(1250px, calc(100% - 72px)); margin: 0 auto; }
 .site-header { height: 82px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(23,61,53,.10); position: relative; z-index: 5; }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-family: Manrope, "DM Sans", sans-serif; font-size: 16px; font-weight: 800; letter-spacing: -.75px; }
-.brand-emblem { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: #e5eee4; color: #426b55; }
+.brand-emblem { width: 32px; height: 32px; display: block; flex: 0 0 auto; overflow: hidden; border-radius: 10px; }
+.brand-emblem img { display: block; width: 100%; height: 100%; }
 .brand-sage { color: #477861; font-weight: 550; }
 .main-nav { display: flex; align-items: center; gap: 37px; color: #738078; font-size: 11px; font-weight: 600; }
 .main-nav a, .site-footer > a:last-child { transition: color .2s ease; }

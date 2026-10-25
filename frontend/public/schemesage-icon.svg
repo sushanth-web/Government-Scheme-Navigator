@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>SchemeSage</title>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14B8A6" />
+      <stop offset="1" stop-color="#0B5D56" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#background)" />
+  <path d="M13 49C13 27 27 13 51 13C51 36 37 49 13 49Z" fill="#fff" />
+  <path d="m17 46 24-24" fill="none" stroke="#0B5D56" stroke-linecap="round" stroke-width="3.4" />
+  <circle cx="47" cy="47" r="10" fill="#FF9933" stroke="#0B5D56" stroke-width="2.5" />
+  <path d="m42.4 47.2 3.2 3.2 6.2-6.6" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" />
+</svg>

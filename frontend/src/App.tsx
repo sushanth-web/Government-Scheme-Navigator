@@ -63,7 +63,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <Link className={`brand ${compact ? "brand-compact" : ""}`} to="/" aria-label="SchemeSage home">
       <span className="brand-emblem" aria-hidden="true">
-        <ShieldCheck size={21} strokeWidth={1.9} />
+        <img src="/schemesage-icon.svg" alt="" />
       </span>
       <span>Scheme<span className="brand-sage">Sage</span></span>
     </Link>
