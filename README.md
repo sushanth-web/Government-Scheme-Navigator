@@ -19,7 +19,8 @@ project, set its **Root Directory** to `backend`; `backend/pyproject.toml`
 configures Vercel's FastAPI entrypoint. Set its production secrets and set
 `FRONTEND_ORIGINS` to the exact HTTPS Vercel site origin. Verify that the
 backend's dependencies and scheme-document/index assets are included in the
-deployment.
+deployment. The backend includes a prebuilt scheme index; do not configure a
+frontend `npm run build` command for this project.
 
 ## Run locally
 
