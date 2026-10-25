@@ -1,2 +1,34 @@
+[project]
+[project]
+# Keep dependencies in sync with requirements.txt for local installs.
+name = "government-scheme-navigator-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv",
+    "langchain-nvidia-ai-endpoints",
+    "langchain",
+    "langchain-core",
+    "langchain-community",
+    "langchain-text-splitters",
+    "langgraph",
+    "chromadb",
+    "langchain-oracledb",
+    "langchain-chroma",
+    "pypdf",
+    "requests",
+    "sounddevice",
+    "soundfile",
+    "numpy",
+    "tavily",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "python-multipart>=0.0.9,<1",
+    "psycopg[binary,pool]>=3.2,<4",
+    "langgraph-checkpoint-postgres>=2.0,<4",
+    "imageio-ffmpeg>=0.5,<1",
+    "langchain-groq",
+]
+
 [tool.vercel]
 entrypoint = "api:app"
