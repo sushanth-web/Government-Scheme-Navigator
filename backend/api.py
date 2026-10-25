@@ -232,7 +232,7 @@ def _frontend_origins() -> list[str]:
         origin.strip()
         for origin in (
             configured
-            or "http://localhost:5173,http://127.0.0.1:5173"
+            or "http://localhost:5173,http://127.0.0.1:5173,https://government-scheme-navigator-s2pq.vercel.app"
         ).split(",")
         if origin.strip()
     ]
