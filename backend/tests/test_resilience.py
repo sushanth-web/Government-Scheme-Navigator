@@ -268,14 +268,12 @@ class ProviderFailureTests(unittest.TestCase):
                     "INDEX_MANIFEST",
                     os.path.join(cache_dir, "schemes_manifest.json"),
                 ),
-                patch.object(
-                    retrieval_agent,
-                    "PyPDFDirectoryLoader",
+                patch(
+                    "langchain_community.document_loaders.PyPDFDirectoryLoader",
                     return_value=SimpleNamespace(load=lambda: documents),
                 ),
-                patch.object(
-                    retrieval_agent,
-                    "RecursiveCharacterTextSplitter",
+                patch(
+                    "langchain_text_splitters.RecursiveCharacterTextSplitter",
                     return_value=splitter,
                 ),
                 patch.object(retrieval_agent, "vector_store", store),
@@ -291,7 +289,7 @@ class ProviderFailureTests(unittest.TestCase):
 
             self.assertEqual(deleted_ids, ["deleted-scheme-chunk"])
             self.assertEqual(added_documents, documents)
-            self.assertIn("current.pdf", manifest)
+            self.assertIn("current.pdf", manifest["files"])
 
     def test_ensure_indexed_rejects_changed_scheme_pdf(self):
         with tempfile.TemporaryDirectory() as directory:

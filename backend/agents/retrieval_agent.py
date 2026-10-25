@@ -9,8 +9,6 @@ import json
 
 from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.tools import tool
 from langchain.agents import create_agent
 from langchain_chroma import Chroma
@@ -124,6 +122,9 @@ def _scheme_fingerprint() -> dict:
 
 def build_index() -> None:
     """Rebuild the persistent vector index from the current scheme PDFs."""
+    from langchain_community.document_loaders import PyPDFDirectoryLoader
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
     loader = PyPDFDirectoryLoader(SCHEMES_DIR)
     documents = loader.load()
 

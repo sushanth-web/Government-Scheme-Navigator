@@ -23,6 +23,8 @@ index; do not configure a frontend `npm run build` command for the backend.
 The backend explicitly allows the Vercel frontend origins
 `https://government-scheme-navigator-fimx.vercel.app` and
 `https://government-scheme-navigator-s2pq.vercel.app`.
+The Vercel backend manifest contains only runtime dependencies; PDF indexing
+dependencies remain in `backend/requirements.txt` for local index rebuilds.
 
 If deploying the backend as its own Vercel project instead, set **Root
 Directory** to `backend`; `backend/pyproject.toml` configures its `api:app`

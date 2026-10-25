@@ -6,7 +6,6 @@ langchain_community
 langchain_text_splitters
 langgraph
 chromadb
-langchain-oracledb
 langchain_chroma
 pypdf
 requests
@@ -20,4 +19,3 @@ python-multipart>=0.0.9,<1
 psycopg[binary,pool]>=3.2,<4
 langgraph-checkpoint-postgres>=2.0,<4
 imageio-ffmpeg>=0.5,<1
-langchain_groq
